@@ -1,0 +1,717 @@
+# Laboratório OAI (Core + gNB + UERANSIM)
+
+Laboratório 5G usando **OpenAirInterface (OAI)** com três componentes separados para validação end-to-end, no contexto da disciplina Interfaces Protocolos ORAN.
+
+## Vector Packet Processing (VPP)
+
+Este laboratório utiliza **Vector Packet Processing (VPP)** no plano de usuário. O Core é iniciado com a stack `basic-vpp`, que emprega o **UPF-VPP** (User Plane Function baseada em FD.io VPP) em vez do SPGWU-Tiny. O VPP oferece:
+
+- **Alto desempenho**: processamento vetorial de pacotes em batch
+- **Throughput elevado**: otimizado para tráfego GTP-U (N3/N9)
+- **Arquitetura moderna**: baseada no framework FD.io VPP
+
+Comando para subir o Core com VPP:
+
+```bash
+cd especializacao_oran/code/oai-containerized/
+./scripts/up_core.sh
+```
+
+ou através do comando disponibilizado pela equipe de desenvolvimento:
+
+```bash
+python3 core-network.py --type start-basic-vpp --scenario 1
+```
+
+---
+
+O projeto utiliza **três componentes** distintos:
+
+- **Core OAI**: `oai-cn5g-fed/docker-compose/` — NFs do 5G Core (AMF, SMF, NRF, **UPF-VPP**, etc.)
+- **gNB OAI**: `openairinterface5g/` — gNB e UE nativos (RFSIM), build a partir do código-fonte
+- **UERANSIM**: `ueransim/docker-compose.yaml` — alternativa containerizada (gNB + UE) para testes e2e
+
+## 📋 Índice
+
+1. [Vector Packet Processing (VPP)](#vector-packet-processing-vpp)
+2. [Pré-requisitos](#pré-requisitos)
+3. [Arquitetura](#arquitetura)
+4. [Estrutura de Diretórios](#estrutura-de-diretórios)
+5. [Cenários de Uso](#cenários-de-uso)
+6. [Início Rápido](#início-rápido)
+7. [Cenários de Deploy](#cenários-de-deploy)
+8. [FlexRIC (O-RAN E2)](#flexric-o-ran-e2)
+9. [Scripts e Comandos](#scripts-e-comandos)
+10. [Testes End-to-End](#testes-end-to-end)
+11. [Troubleshooting](#troubleshooting)
+12. [Guia de Reexecução Completo](#guia-de-reexecução-completo)
+
+---
+
+## Pré-requisitos
+
+- Docker 20.10+ e Docker Compose 2.0+
+- Conta no Docker Hub (para pull das imagens OAI)
+- Ubuntu 22.04+ (recomendado)
+- IPv4 forwarding habilitado: `sudo sysctl net.ipv4.conf.all.forwarding=1` e `sudo iptables -P FORWARD ACCEPT`
+- Python3 (para `core-network.py`)
+- ~8GB RAM livre
+- Para gNB OAI nativo: dependências de build e ~10 GB de disco (ver [docs/INSTALACAO_GNB_OAI.md](docs/INSTALACAO_GNB_OAI.md))
+- Para FlexRIC (O-RAN E2): ver [docs/INSTALACAO_FLEXRIC_OAI.md](docs/INSTALACAO_FLEXRIC_OAI.md)
+
+---
+
+## Arquitetura
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Core OAI (oai-cn5g-fed)                      │
+│  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐        │
+│  │ NRF │ │ AMF │ │ SMF │ │AUSF │ │ UDM │ │ UDR │ │ UPF │  MySQL │
+│  └─────┘ └──┬──┘ └──┬──┘ └─────┘ └─────┘ └─────┘ └──┬──┘        │
+└─────────────┼───────┼───────────────────────────────┼───────────┘
+              │ N2    │ N4                            │ N6
+              │(NGAP) │(PFCP)                         │(Data)
+    ┌─────────┴───────┴───────────────────────────────┴───────┐
+    │                    demo-oai-public-net                  │
+    └─────────┬───────────────────────────────────────┬───────┘
+              │                                       │
+    ┌─────────┴───────────┐                 ┌─────────┴─────────┐
+    │   gNB OAI           │      OU         │   UERANSIM        │
+    │ (openairinterface5g)|                 │ (containerizado)  │
+    │   run_gnb.sh        │                 │   gNB + UE        │
+    │   run_ue.sh         │                 │   docker-compose  │
+    └─────────────────────┘                 └───────────────────┘
+```
+
+### Estrutura dos Componentes
+
+| Componente | Localização | Tipo | Descrição |
+|------------|-------------|------|-----------|
+| **Core OAI** | `oai-cn5g-fed/docker-compose/` | Docker Compose | NRF, AMF, SMF, AUSF, UDM, UDR, **UPF-VPP** (Vector Packet Processing), MySQL, DN |
+| **gNB OAI** | `openairinterface5g/` | Binários nativos | gNB e nrUE em modo RFSIM, build a partir do código-fonte |
+| **UERANSIM** | `ueransim/` ou `oai-cn5g-fed/docker-compose/docker-compose-ueransim-vpp.yaml` | Docker Compose | gNB + UE em um container, alternativa ao gNB OAI |
+
+### Redes Docker (Core OAI)
+
+- **demo-oai-public-net**: Rede principal para comunicação entre Core e RAN
+- **oai-public-access**: Rede de acesso (GTP-U) entre gNB e UPF (quando usado UERANSIM com VPP)
+
+---
+
+## Estrutura de Diretórios
+
+```
+oai-containerized/
+├── scripts/
+│   ├── up_all.sh              # Sobe tudo (Core + UERANSIM + gNB OAI)
+│   ├── down_all.sh            # Para tudo
+│   ├── up_core.sh             # Iniciar Core OAI
+│   ├── down_core.sh           # Parar Core OAI
+│   ├── up_ueransim.sh         # Iniciar RAN UERANSIM (container)
+│   ├── down_ueransim.sh       # Parar RAN UERANSIM
+│   ├── up_gnb_oai.sh          # Iniciar RAN gNB OAI (nativo)
+│   ├── down_gnb_oai.sh        # Parar RAN gNB OAI
+│   ├── up_flexric.sh          # Iniciar FlexRIC nearRT-RIC (O-RAN E2)
+│   ├── down_flexric.sh        # Parar FlexRIC
+│   ├── build_flexric.sh       # Compilar e instalar FlexRIC
+│   ├── setup_oaic_2024.sh     # Setup OAI + FlexRIC integrado (cenário 3)
+│   ├── test-vpp-throughput.sh # Teste de throughput (iperf3)
+│   └── fix-ue-subscriber.sh   # Adiciona usuários ao DB (apenas se DB antigo)
+├── docs/
+|   ├── INSTALACAO_FLEXRIC_OAI.md
+│   └── INSTALACAO_GNB_OAI.md
+├── oai-cn5g-fed/              # Core OAI
+│   ├── docker-compose/
+│   │   ├── core-network.py           # Script de deploy (start/stop)
+│   │   ├── docker-compose-basic-nrf.yaml
+│   │   ├── docker-compose-basic-vpp-nrf.yaml
+│   │   ├── docker-compose-ueransim-vpp.yaml   # UERANSIM + Core VPP
+│   │   ├── docker-compose-no-privilege.yaml
+│   │   └── database/
+│   └── docs/
+│       ├── DEPLOY_SA5G_BASIC_DEPLOYMENT.md
+│       ├── DEPLOY_SA5G_WITH_UERANSIM.md
+│       └── DEPLOY_SA5G_WITH_VPP_UPF.md
+├── openairinterface5g/        # gNB OAI (RAN nativo)
+│   ├── cmake_targets/         # Build output
+│   ├── scripts/
+│   │   ├── run_gnb.sh
+│   │   ├── run_ue.sh
+│   │   └── gnb.conf
+│   └── ...
+├── ueransim/                  # RAN containerizado (alternativa)
+│   ├── configs/
+│   │   ├── gnb.yaml
+│   │   ├── ue.yaml
+│   │   └── entrypoint.sh
+│   └── docker-compose.yaml
+├── logs/                      # Logs dos processos (gnb_oai, ue_oai, flexric_ric)
+└── README.md                  # Este arquivo
+```
+
+---
+
+## Cenários de Uso
+
+O projeto suporta **três cenários** distintos. Você pode explorar com ou sem FlexRIC:
+
+| Cenário | Core | RAN | FlexRIC | Build gNB | Uso |
+|---------|------|-----|---------|-----------|-----|
+| **1. UERANSIM e2e** | ✓ | UERANSIM | ✗ | não precisa | Conectividade e2e rápida, sem build |
+| **2. gNB OAI e2e** | ✓ | gNB OAI | ✗ | `--gNB --nrUE -w SIMU -c` | Conectividade e2e com RAN OAI nativo |
+| **3. gNB OAI + FlexRIC** | ✓ | gNB OAI | ✓ | `--build-e2` + FlexRIC | E2e + monitoramento/controle O-RAN E2 |
+
+Para usar o **gNB OAI sem FlexRIC** (cenário 2): build sem `--build-e2`.  
+Para usar o **gNB OAI com FlexRIC** (cenário 3): build com `--build-e2` e instale o FlexRIC.  
+Os cenários 1 e 2 não exigem FlexRIC. O cenário 3 adiciona o nearRT-RIC e xApps.
+
+---
+
+## Início Rápido
+
+### Cenário 1: Core OAI + UERANSIM (recomendado para testes e2e)
+
+**Passo 1 — Pull das imagens** (uma vez):
+
+```bash
+cd oai-containerized   # ou o diretório raiz do projeto
+docker login   # caso não esteja logado
+# Pull das imagens OAI (ver seção "Pull de Imagens")
+```
+
+**Passo 2 — Iniciar o Core:**
+
+```bash
+./scripts/up_core.sh
+```
+
+**Passo 3 — Iniciar UERANSIM:**
+
+```bash
+./scripts/up_ueransim.sh
+```
+
+**Passo 4 — Verificar conectividade:**
+
+```bash
+docker exec ueransim ping -c 3 -I uesimtun0 google.com
+```
+
+**Parar o laboratório:**
+
+```bash
+./scripts/down_ueransim.sh
+./scripts/down_core.sh
+```
+
+### Cenário 2: Core OAI + gNB OAI (RFSIM, sem FlexRIC)
+
+**Passo 1 — Iniciar o Core** (como acima).
+
+**Passo 2 — Build do openairinterface5g** (uma vez, **sem** `--build-e2` para apenas conectividade e2e):
+
+```bash
+cd openairinterface5g/cmake_targets
+./build_oai --ninja -I
+./build_oai --ninja --gNB --nrUE -w SIMU -c
+```
+
+**Passo 3 — Configurar rede** (após o Core estar rodando):
+
+```bash
+sudo ip addr add 192.168.70.129/24 dev demo-oai 2>/dev/null || true
+```
+
+**Passo 4 — Iniciar gNB OAI:**
+
+```bash
+./scripts/up_gnb_oai.sh
+```
+
+**Passo 5 — Verificar conectividade:**
+
+```bash
+ping -c 3 -I oaitun_ue1 8.8.8.8
+```
+
+**Parar:**
+
+```bash
+./scripts/down_gnb_oai.sh
+./scripts/down_core.sh
+```
+
+Guia completo: [docs/INSTALACAO_GNB_OAI.md](docs/INSTALACAO_GNB_OAI.md)
+
+### Cenário 3: Core OAI + gNB OAI + FlexRIC (O-RAN E2)
+
+Para monitoramento e controle O-RAN via interface E2 com **gNB OAI real** integrado.
+
+#### Passo a passo completo (ordem obrigatória)
+
+| # | Comando | O que faz |
+|---|---------|-----------|
+| 0 | `./scripts/setup_oaic_2024.sh` | **Uma vez:** Substitui OAI por versões OAIC 2024 (OAI + FlexRIC compatíveis), compila ambos com E2 Agent. ~30–60 min. |
+| 1 | `./scripts/up_core.sh` | Inicia o 5G Core (AMF, SMF, UPF-VPP, etc.) em containers Docker. Cria a rede `demo-oai` e interface no host. |
+| 2 | `./scripts/up_flexric.sh` | Inicia o **nearRT-RIC** (FlexRIC) em background. O RIC escuta conexões E2 do gNB. Deve rodar **antes** do gNB. |
+| 3 | `./scripts/up_gnb_oai.sh` | Inicia gNB + nrUE em modo RFSIM. O gNB conecta ao Core (N2) e ao nearRT-RIC (E2). Configura IP 192.168.70.129 em `demo-oai` se necessário. |
+
+#### Significado de cada componente
+
+- **Core OAI**: NFs do 5G Core (AMF, SMF, UPF, etc.). O gNB registra-se via NGAP; o UE autentica e obtém sessão PDU.
+- **FlexRIC (nearRT-RIC)**: RAN Intelligent Controller O-RAN. Recebe métricas (KPM) e permite controle (RC) via interface E2. O gNB OAI tem E2 Agent integrado que se conecta ao RIC.
+- **gNB OAI**: RAN nativo em modo RFSIM (simulador de rádio). Usa `gnb.conf` e `ue.conf` em `openairinterface5g/scripts/` (PLMN 208/95, slice 222/123).
+- **nrUE**: UE nativo OAI. Conecta ao gNB via RFSIM e obtém interface `oaitun_ue1` para tráfego.
+
+#### Logs (`logs/`)
+
+Os scripts redirecionam stdout/stderr dos processos para arquivos em `logs/`:
+
+| Arquivo | Origem | Conteúdo |
+|---------|--------|----------|
+| `logs/gnb_oai.log` | `nr-softmodem` | Logs do gNB (NG Setup, células, E2 Agent). |
+| `logs/ue_oai.log` | `nr-uesoftmodem` | Logs do nrUE (registro, sessão PDU). |
+| `logs/flexric_ric.log` | `nearRT-RIC` | Saída do FlexRIC. Pode ficar vazio ou com poucas linhas até o gNB conectar via E2; o nearRT-RIC pode usar buffer ou logging via `/usr/local/etc/flexric/flexric.conf`. |
+
+**Por que `flexric_ric.log` pode estar vazio?** O script `up_flexric.sh` redireciona stdout/stderr do nearRT-RIC para esse arquivo (`nohup ... > logs/flexric_ric.log 2>&1`). O FlexRIC pode imprimir pouco até receber a primeira conexão E2 do gNB. Se o gNB e o RIC estiverem rodando, verifique também a conexão E2 nos logs do gNB (`gnb_oai.log`).
+
+#### Verificação e xApps
+
+```bash
+# Conectividade e2e
+ping -c 3 -I oaitun_ue1 8.8.8.8
+
+# xApp KPM (métricas em tempo real)
+cd openairinterface5g/openair2/E2AP/flexric
+XAPP_DURATION=60 ./build/examples/xApp/c/monitor/xapp_kpm_moni
+
+# xApp KPM-RC (métricas + controle RAN)
+./build/examples/xApp/c/kpm_rc/xapp_kpm_rc
+```
+
+Para **demonstração em sala** e aplicabilidade dos xApps: [docs/APLICABILIDADE_XAPPS_DEMONSTRACAO.md](docs/APLICABILIDADE_XAPPS_DEMONSTRACAO.md).
+
+#### Parar (ordem inversa)
+
+```bash
+./scripts/down_gnb_oai.sh
+./scripts/down_flexric.sh
+./scripts/down_core.sh
+```
+
+**Alternativa manual:** [docs/INSTALACAO_FLEXRIC_OAI.md](docs/INSTALACAO_FLEXRIC_OAI.md) — o build com `--build-e2` pode falhar por incompatibilidade de API; ver [docs/ESTRATEGIA_GNB_FLEXRIC_REAL.md](docs/ESTRATEGIA_GNB_FLEXRIC_REAL.md).
+
+---
+
+## Cenários de Deploy
+
+### Scripts (recomendado)
+
+
+| Script                             | Descrição                                      |
+| ---------------------------------- | ---------------------------------------------- |
+| `./scripts/up_all.sh`              | **Sobe tudo** (Core + UERANSIM + gNB OAI)      |
+| `./scripts/down_all.sh`            | **Para tudo** (ordem inversa)                  |
+| `./scripts/up_core.sh`             | Inicia Core OAI (UPF-VPP, NRF)                 |
+| `./scripts/down_core.sh`           | Para o Core                                    |
+| `./scripts/up_ueransim.sh`         | Inicia RAN UERANSIM (gNB + UE em container)    |
+| `./scripts/down_ueransim.sh`       | Para UERANSIM                                  |
+| `./scripts/up_gnb_oai.sh`          | Inicia RAN gNB OAI (gNB + nrUE nativos)        |
+| `./scripts/down_gnb_oai.sh`        | Para gNB OAI                                   |
+| `./scripts/up_flexric.sh`          | Inicia FlexRIC nearRT-RIC (O-RAN E2)           |
+| `./scripts/down_flexric.sh`        | Para FlexRIC                                   |
+| `./scripts/build_flexric.sh`       | Compila e instala FlexRIC                      |
+| `./scripts/setup_oaic_2024.sh`     | Setup OAI + FlexRIC integrado (cenário 3)      |
+| `./scripts/build_with_log.sh [tipo]` | Build com log em `openairinterface5g/troubleshooting/` |
+| `./scripts/test-vpp-throughput.sh` | Teste de throughput (iperf3, UERANSIM ou nrUE) |
+
+
+### Core OAI (comandos diretos)
+
+
+| Comando                                                       | Descrição                        |
+| ------------------------------------------------------------- | -------------------------------- |
+| `python3 core-network.py --type start-basic-vpp --scenario 1` | Inicia Core com UPF-VPP e NRF    |
+| `python3 core-network.py --type start-basic --scenario 1`     | Inicia Core com SPGWU-Tiny e NRF |
+| `python3 core-network.py --type stop-basic-vpp --scenario 1`  | Para o Core                      |
+
+
+### UERANSIM
+
+
+| Comando                                                    | Descrição                              |
+| ---------------------------------------------------------- | -------------------------------------- |
+| `./scripts/up_ueransim.sh`                                 | Inicia UERANSIM (usa redes do Core)    |
+| `./scripts/down_ueransim.sh`                               | Para UERANSIM                          |
+| `docker compose -f docker-compose-ueransim-vpp.yaml up -d` | Comando direto (no dir docker-compose) |
+
+
+### gNB OAI (nativo)
+
+
+| Comando                        | Descrição                                                        |
+| ------------------------------ | ---------------------------------------------------------------- |
+| `./scripts/up_gnb_oai.sh`      | Inicia gNB + nrUE (RFSIM) em background                          |
+| `./scripts/down_gnb_oai.sh`    | Para gNB e nrUE                                                  |
+| `./run_gnb.sh` / `./run_ue.sh` | Comandos manuais (**executar de** `openairinterface5g/scripts/`) |
+
+
+**Documentação detalhada**: [docs/INSTALACAO_GNB_OAI.md](docs/INSTALACAO_GNB_OAI.md) — instalação, build e troubleshooting.
+
+---
+
+## FlexRIC (O-RAN E2)
+
+O [FlexRIC](https://gitlab.eurecom.fr/mosaic5g/flexric/) é um nearRT-RIC compatível com O-RAN que permite monitorar e controlar o gNB via interface E2. O gNB OAI possui um E2 Agent integrado.
+
+**Fluxo recomendado (gNB OAI + FlexRIC integrado):**
+
+```bash
+# 1. Setup OAIC 2024 — OAI + FlexRIC em versões compatíveis (uma vez)
+./scripts/setup_oaic_2024.sh
+
+# 2. Ordem de execução: Core → FlexRIC → gNB
+./scripts/up_core.sh
+./scripts/up_flexric.sh
+./scripts/up_gnb_oai.sh
+```
+
+**Logs:** O nearRT-RIC grava em `logs/flexric_ric.log`. Pode ficar vazio até o gNB conectar via E2. Ver seção [Cenário 3](#cenário-3-core-oai--gnb-oai--flexric-o-ran-e2) para detalhes.
+
+**xApps de exemplo** (após tudo rodando):
+
+```bash
+cd openairinterface5g/openair2/E2AP/flexric
+XAPP_DURATION=60 ./build/examples/xApp/c/monitor/xapp_kpm_moni
+```
+
+**Aplicabilidade e demonstração em sala:** [docs/APLICABILIDADE_XAPPS_DEMONSTRACAO.md](docs/APLICABILIDADE_XAPPS_DEMONSTRACAO.md) — para que servem os xApps, métricas exibidas e roteiro para apresentação aos alunos.
+
+Guia completo: [docs/INSTALACAO_FLEXRIC_OAI.md](docs/INSTALACAO_FLEXRIC_OAI.md) | Estratégia: [docs/ESTRATEGIA_GNB_FLEXRIC_REAL.md](docs/ESTRATEGIA_GNB_FLEXRIC_REAL.md)
+
+---
+
+## Scripts e Comandos
+
+### Pull de Imagens OAI
+
+```bash
+docker pull oaisoftwarealliance/oai-amf:v1.5.1
+docker pull oaisoftwarealliance/oai-nrf:v1.5.1
+docker pull oaisoftwarealliance/oai-spgwu-tiny:v1.5.1
+docker pull oaisoftwarealliance/oai-smf:v1.5.1
+docker pull oaisoftwarealliance/oai-udr:v1.5.1
+docker pull oaisoftwarealliance/oai-udm:v1.5.1
+docker pull oaisoftwarealliance/oai-ausf:v1.5.1
+docker pull oaisoftwarealliance/oai-upf-vpp:v1.5.1
+docker pull oaisoftwarealliance/oai-nssf:v1.5.1
+docker pull oaisoftwarealliance/oai-pcf:v1.5.1
+docker pull oaisoftwarealliance/oai-nef:v1.5.1
+docker pull oaisoftwarealliance/trf-gen-cn5g:latest
+```
+
+### Sync do repositório OAI CN5G
+
+```bash
+git clone --branch v1.5.1 https://gitlab.eurecom.fr/oai/cn5g/oai-cn5g-fed.git
+cd oai-cn5g-fed
+git checkout -f v1.5.1
+./scripts/syncComponents.sh
+git submodule deinit --all --force
+git submodule init
+git submodule update
+```
+
+### Configuração AMF para UERANSIM
+
+UERANSIM não suporta NIA0/NEA0. O `docker-compose-basic-vpp-nrf.yaml` já inclui:
+
+```yaml
+- INT_ALGO_LIST=["NIA1" , "NIA2"]
+- CIPH_ALGO_LIST=["NEA1" , "NEA2"]
+```
+
+### Diagnóstico e correção de conexão UE
+
+Se o UE ficar em `SGMM-REG-INITIATED`:
+
+```bash
+./scripts/diagnose-ue-connection.sh   # Diagnóstico
+./scripts/fix-ue-subscriber.sh       # Adiciona subscriber ao banco (se necessário)
+```
+
+Depois reinicie Core e UERANSIM.
+
+---
+
+## Testes End-to-End
+
+### Com UERANSIM
+
+1. **Registro do UE:** Verificar logs `docker logs ueransim` para "MM-REGISTERED"
+2. **Sessão PDU:** Verificar interface `uesimtun0` no container
+3. **Conectividade:** `docker exec ueransim ping -c 3 -I uesimtun0 8.8.8.8`
+
+### Com gNB OAI
+
+1. **NG Setup:** Verificar logs do gNB para "NG Setup procedure is successful"
+2. **Registro UE:** Verificar logs do nrUE
+3. **Tráfego:** Usar `trf-gen-cn5g` ou ferramentas de teste
+
+### Teste de Throughput VPP (iperf3)
+
+Mede o throughput do plano de usuário através do UPF-VPP. O script usa `-B` para forçar o tráfego pela interface do túnel (uesimtun0 ou oaitun_ue*) e inclui timeout para evitar travamento.
+
+```bash
+./scripts/test-vpp-throughput.sh
+```
+
+Variáveis opcionais:
+
+- `UE_SOURCE=nrue` — usar nrUE (OAI) em vez de UERANSIM
+- `IPERF_DURATION=15` — duração em segundos (padrão: 10)
+- `IPERF_MODE=udp` — modo UDP em vez de TCP
+- `OAI_DN_IP=192.168.73.135` — IP do DN (se diferente)
+
+### Testes de Failover
+
+Para cenários de failover de UPF, consulte a documentação do projeto principal em `rnp_failover/README.md`. O laboratório OAI pode ser integrado com múltiplas UPFs conforme a configuração do `docker-compose` e do SMF.
+
+---
+
+## Troubleshooting
+
+### PCF/UDR ou outras NFs reiniciando
+
+- Verificar se MySQL está healthy: `docker ps | grep mysql`
+- Verificar logs: `docker logs oai-amf`, `docker logs oai-smf`
+- Verificar conectividade entre containers na rede `demo-oai-public-net`
+
+### run_gnb.sh: "No such file or directory" ou "nr-softmodem: command not found"
+
+- **Causa**: Script executado do diretório errado ou build não feito.
+- **Solução**: Use `./scripts/up_gnb_oai.sh` (recomendado) ou execute `run_gnb.sh` de `openairinterface5g/scripts/`. Para build: `cd openairinterface5g/cmake_targets && ./build_oai --ninja --gNB --nrUE -w SIMU -c`. Ver [docs/INSTALACAO_GNB_OAI.md](docs/INSTALACAO_GNB_OAI.md).
+
+### gNB OAI: "NG setup failure" / AMF não loga o gNB
+
+- **Causa**: S-NSSAI do gNB não coincide com o AMF. O AMF usa SST=222, SD=123.
+- **Solução**: Em `openairinterface5g/scripts/gnb.conf`, use `plmn_list = ({ ... snssaiList = ({ sst = 222; sd = 123; }) })`. Ver [docs/INSTALACAO_GNB_OAI.md](docs/INSTALACAO_GNB_OAI.md).
+
+### gNB não conecta ao AMF
+
+- Verificar TAC, PLMN (MCC/MNC) entre gNB e AMF
+- Verificar rota do host gNB para o host do Core
+- Para gNB OAI nativo: adicionar IP ao host (`sudo ip addr add 192.168.70.129/24 dev demo-oai`) e verificar `ping 192.168.70.132`
+- Para UERANSIM: verificar `NGAP_PEER_IP` e `LINK_IP` no docker-compose
+
+### UE não acessa internet
+
+- Verificar se UPF está healthy
+- Verificar logs do SMF: `docker logs oai-smf | grep PFCP`
+- Verificar rota no UE: `docker exec ueransim ip route` (UERANSIM)
+
+### docker-compose-no-privilege
+
+Se usar `docker-compose-no-privilege.yaml`, comente as linhas `cap_drop: - ALL` antes de subir os serviços.
+
+### logs/flexric_ric.log vazio ou com poucas linhas
+
+O `up_flexric.sh` redireciona stdout/stderr do nearRT-RIC para `logs/flexric_ric.log`. O FlexRIC pode imprimir pouco até o gNB conectar via E2. Verifique se o gNB está rodando e se o E2 Agent em `gnb.conf` aponta para `near_ric_ip_addr = "127.0.0.1"`. Logs de conexão E2 podem aparecer em `logs/gnb_oai.log`.
+
+---
+
+## Guia de Reexecução Completo
+
+Roteiro passo a passo para reproduzir o laboratório do zero. Execute na ordem indicada.
+
+**Cenários:** O guia cobre os três cenários. Para apenas UERANSIM (cenário 1), pule o build do gNB. Para gNB sem FlexRIC (cenário 2), use o build padrão. Para gNB + FlexRIC (cenário 3), inclua a Fase 1b.
+
+### Fase 1: Setup Inicial (uma vez)
+
+```bash
+cd oai-containerized   # ou o diretório raiz do projeto
+
+# 1. Pull das imagens OAI
+docker login
+docker pull oaisoftwarealliance/oai-amf:v1.5.1
+docker pull oaisoftwarealliance/oai-nrf:v1.5.1
+docker pull oaisoftwarealliance/oai-smf:v1.5.1
+docker pull oaisoftwarealliance/oai-udr:v1.5.1
+docker pull oaisoftwarealliance/oai-udm:v1.5.1
+docker pull oaisoftwarealliance/oai-ausf:v1.5.1
+docker pull oaisoftwarealliance/oai-upf-vpp:v1.5.1
+docker pull oaisoftwarealliance/trf-gen-cn5g:latest
+
+# 2. Build do gNB OAI (RFSIM) — ~15–30 min
+#    Cenários 1–2: sem --build-e2 (apenas conectividade e2e)
+#    Cenário 3: use Fase 1b (FlexRIC) e build com --build-e2
+cd openairinterface5g/cmake_targets
+./build_oai --ninja -I
+./build_oai --ninja --gNB --nrUE -w SIMU -c
+cd ../..
+```
+
+### Fase 1b: FlexRIC (opcional — apenas cenário 3)
+
+Para monitoramento O-RAN via FlexRIC com **gNB OAI real**:
+
+```bash
+# Recomendado: setup OAIC 2024 (OAI + FlexRIC em versões compatíveis)
+./scripts/setup_oaic_2024.sh
+```
+
+Alternativa manual (pode falhar por incompatibilidade de API):
+
+```bash
+./scripts/build_flexric.sh
+cd openairinterface5g/cmake_targets
+./build_oai --ninja --gNB --nrUE --build-e2 -w SIMU -c
+cd ../..
+```
+
+### Fase 2: Usuários pré-cadastrados
+
+Os **usuários finais 01 e 02** já estão em `oai_db2.sql`:
+
+
+| Usuário | IMSI            | Uso                                       |
+| ------- | --------------- | ----------------------------------------- |
+| 01      | 208950000000031 | UERANSIM (docker-compose-ueransim-vpp)    |
+| 02      | 208950000000032 | nrUE (openairinterface5g/scripts/ue.conf) |
+
+
+**Importante:** Se o banco foi criado antes desta alteração, recrie o volume: `docker compose down -v` (no dir do Core) e suba novamente. Ou use `./scripts/fix-ue-subscriber.sh`.
+
+### Fase 3: Configurações Críticas
+
+
+| Arquivo                               | Parâmetro               | Valor                             | Motivo                               |
+| ------------------------------------- | ----------------------- | --------------------------------- | ------------------------------------ |
+| `openairinterface5g/scripts/gnb.conf` | `plmn_list`             | `sst = 222; sd = 123`             | Deve coincidir com AMF (SST_0, SD_0) |
+| `openairinterface5g/scripts/ue.conf`  | `imsi`                  | `208950000000032`                 | Usuário 02 (nrUE)                    |
+| `openairinterface5g/scripts/ue.conf`  | `nssai_sst`, `nssai_sd` | `222`, `123`                      | Slice do AMF                         |
+| `openairinterface5g/scripts/ue.conf`  | `dnn`                   | `default`                         | DNN do SMF para slice 222/123        |
+| `ueransim/configs/gnb.yaml`           | `slices`                | `sst: 222, sd: "000123"`          | Alinhado ao AMF                      |
+| `docker-compose-basic-vpp-nrf.yaml`   | AMF                     | `INT_ALGO_LIST`, `CIPH_ALGO_LIST` | UERANSIM não suporta NIA0/NEA0       |
+
+
+### Fase 4: Deploy (ordem de execução)
+
+**Opção única — sobe tudo (cenários 1–2):**
+
+```bash
+cd oai-containerized
+./scripts/up_all.sh
+```
+
+**Ou passo a passo:**
+
+```bash
+cd oai-containerized
+
+# 1. Iniciar Core OAI (UPF-VPP)
+./scripts/up_core.sh
+
+# 2. Configurar rede para gNB OAI (interface demo-oai)
+sudo ip addr add 192.168.70.129/24 dev demo-oai 2>/dev/null || true
+
+# 3. [Cenário 3] Iniciar FlexRIC (antes do gNB)
+./scripts/up_flexric.sh
+
+# 4. Iniciar UERANSIM (usuário 01)
+./scripts/up_ueransim.sh
+
+# 5. Iniciar gNB OAI (usuário 02)
+./scripts/up_gnb_oai.sh
+```
+
+### Fase 5: Verificação
+
+```bash
+# Core e containers
+docker ps -a
+
+# UERANSIM: UE registrado e conectividade
+docker exec ueransim ping -c 3 -I uesimtun0 8.8.8.8
+
+# gNB OAI: interface oaitun no host
+ip addr show oaitun_ue0  # ou oaitun_ue1
+
+# AMF: ambos os gNBs conectados (ver logs)
+docker logs oai-amf 2>&1 | grep -E "gNB|Connected"
+# Deve mostrar: UERANSIM-gnb e OAI-gNB
+```
+
+### Fase 6: Teste de Throughput
+
+O script usa `-B` para forçar o tráfego pela interface do túnel (uesimtun0 ou oaitun_ue*).
+
+```bash
+# Com UERANSIM (padrão)
+./scripts/test-vpp-throughput.sh
+
+# Com nrUE (OAI)
+UE_SOURCE=nrue ./scripts/test-vpp-throughput.sh
+
+# Opções adicionais
+IPERF_DURATION=15 IPERF_MODE=udp ./scripts/test-vpp-throughput.sh
+```
+
+**Teste manual (iperf3):**
+
+```bash
+# Servidor no DN (terminal 1)
+docker exec -it oai-ext-dn iperf3 -s
+
+# Cliente UERANSIM (terminal 2)
+docker exec ueransim iperf3 -c 192.168.73.135 -t 10 -f m -B 12.1.1.2
+
+# Cliente nrUE (terminal 2, no host)
+iperf3 -c 192.168.73.135 -t 10 -f m -B $(ip -4 addr show oaitun_ue1 | grep -oP 'inet \K[\d.]+')
+```
+
+### Fase 7: Parada (ordem inversa)
+
+```bash
+./scripts/down_all.sh
+```
+
+Ou passo a passo: `down_gnb_oai.sh` → `down_ueransim.sh` → `down_flexric.sh` (se usado) → `down_core.sh`
+
+### Resumo de IPs e Redes
+
+
+| Elemento        | IP/Rede        | Interface              |
+| --------------- | -------------- | ---------------------- |
+| AMF             | 192.168.70.132 | demo-oai-public-net    |
+| gNB OAI (host)  | 192.168.70.129 | demo-oai               |
+| UERANSIM        | 192.168.70.141 | demo-oai-public-net    |
+| DN (oai-ext-dn) | 192.168.73.135 | cn5g-core              |
+| UE (túnel)      | 12.1.1.x       | uesimtun0 / oaitun_ue* |
+
+
+---
+
+## Documentação Adicional
+
+- **gNB OAI (instalação e uso)**: [docs/INSTALACAO_GNB_OAI.md](docs/INSTALACAO_GNB_OAI.md)
+- **Core OAI**: `oai-cn5g-fed/docs/DEPLOY_SA5G_BASIC_DEPLOYMENT.md`
+- **UERANSIM com OAI**: `oai-cn5g-fed/docs/DEPLOY_SA5G_WITH_UERANSIM.md`
+- **UPF-VPP (Vector Packet Processing)**: `oai-cn5g-fed/docs/DEPLOY_SA5G_WITH_VPP_UPF.md` — documentação detalhada do VPP no OAI
+
+---
+
+## Relação com o Projeto RNP Failover
+
+Este laboratório faz parte do repositório **RNP Failover** (CERISE/UFG), que investiga:
+
+- Escalabilidade e tolerância a falhas do 5G Core
+- Failover de UPF e otimização de performance
+- Testes end-to-end e validação de cenários
+
+O OAI oferece uma stack alternativa ao Open5GS e free5GC para comparação e testes. A estrutura com Core, gNB e UERANSIM separados permite flexibilidade para cenários de pesquisa.
+
+---
+
+**Última Atualização:** 2026-03-17
