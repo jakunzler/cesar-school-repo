@@ -360,6 +360,7 @@ DN_IMAGE=alpine:latest
 
 ## Documentação Adicional
 
+- `docs/labs/INDICE.md`: Roteiros de laboratório (core, UERANSIM, N2/N3, E2E, relatório)
 - `core/docs/CORE.md`: Documentação consolidada do Core (arquitetura, IPs, correções, scripts, **WebUI admin**, troubleshooting)
 - `ueransim/docs/RAN.md`: Documentação consolidada da RAN (UERANSIM, gNB, UE, configuração, troubleshooting)
 
