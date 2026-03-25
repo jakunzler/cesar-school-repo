@@ -133,7 +133,7 @@ cd open5gs-containerized/ueransim
 
 ```bash
 docker exec ueransim ip addr show uesimtun0
-docker exec ueransim ping -c 4 8.8.8.8
+docker exec ueransim ping -c -I uesimtun0 4 8.8.8.8
 ```
 
 **Evidência:** IP atribuído ao UE e *ping* com perda 0% (ou explicar falhas com trecho de log).
