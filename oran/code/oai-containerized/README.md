@@ -13,7 +13,7 @@ Este laboratório utiliza **Vector Packet Processing (VPP)** no plano de usuári
 Comando para subir o Core com VPP:
 
 ```bash
-cd code/oai-containerized/
+cd oran/code/oai-containerized/
 ./scripts/up_core.sh
 ```
 
@@ -175,7 +175,7 @@ Os cenários 1 e 2 não exigem FlexRIC. O cenário 3 adiciona o nearRT-RIC e xAp
 **Passo 1 — Pull das imagens** (uma vez):
 
 ```bash
-cd oai-containerized   # ou o diretório raiz do projeto
+cd oran/code/oai-containerized/   # ou o diretório raiz do projeto
 docker login   # caso não esteja logado
 # Pull das imagens OAI (ver seção "Pull de Imagens")
 ```
@@ -212,7 +212,7 @@ docker exec ueransim ping -c 3 -I uesimtun0 google.com
 **Passo 2 — Build do openairinterface5g** (uma vez, **sem** `--build-e2` para apenas conectividade e2e):
 
 ```bash
-cd openairinterface5g/cmake_targets
+cd oran/code/oai-containerized/openairinterface5g/cmake_targets
 ./build_oai --ninja -I
 ./build_oai --ninja --gNB --nrUE -w SIMU -c
 ```
@@ -283,7 +283,7 @@ Os scripts redirecionam stdout/stderr dos processos para arquivos em `logs/`:
 ping -c 3 -I oaitun_ue1 8.8.8.8
 
 # xApp KPM (métricas em tempo real)
-cd openairinterface5g/openair2/E2AP/flexric
+cd oran/code/oai-containerized/openairinterface5g/openair2/E2AP/flexric
 XAPP_DURATION=60 ./build/examples/xApp/c/monitor/xapp_kpm_moni
 
 # xApp KPM-RC (métricas + controle RAN)
@@ -382,7 +382,7 @@ O [FlexRIC](https://gitlab.eurecom.fr/mosaic5g/flexric/) é um nearRT-RIC compat
 **xApps de exemplo** (após tudo rodando):
 
 ```bash
-cd openairinterface5g/openair2/E2AP/flexric
+cd oran/code/oai-containerized/openairinterface5g/openair2/E2AP/flexric
 XAPP_DURATION=60 ./build/examples/xApp/c/monitor/xapp_kpm_moni
 ```
 
@@ -546,7 +546,7 @@ docker pull oaisoftwarealliance/trf-gen-cn5g:latest
 # 2. Build do gNB OAI (RFSIM) — ~15–30 min
 #    Cenários 1–2: sem --build-e2 (apenas conectividade e2e)
 #    Cenário 3: use Fase 1b (FlexRIC) e build com --build-e2
-cd openairinterface5g/cmake_targets
+cd oran/code/oai-containerized/openairinterface5g/cmake_targets
 ./build_oai --ninja -I
 ./build_oai --ninja --gNB --nrUE -w SIMU -c
 cd ../..
@@ -565,7 +565,7 @@ Alternativa manual (pode falhar por incompatibilidade de API):
 
 ```bash
 ./scripts/build_flexric.sh
-cd openairinterface5g/cmake_targets
+cd oran/code/oai-containerized/openairinterface5g/cmake_targets
 ./build_oai --ninja --gNB --nrUE --build-e2 -w SIMU -c
 cd ../..
 ```
@@ -601,14 +601,14 @@ Os **usuários finais 01 e 02** já estão em `oai_db2.sql`:
 **Opção única — sobe tudo (cenários 1–2):**
 
 ```bash
-cd oai-containerized
+cd oran/code/oai-containerized/
 ./scripts/up_all.sh
 ```
 
 **Ou passo a passo:**
 
 ```bash
-cd oai-containerized
+cd oran/code/oai-containerized/
 
 # 1. Iniciar Core OAI (UPF-VPP)
 ./scripts/up_core.sh

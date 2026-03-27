@@ -137,14 +137,14 @@ git clone https://github.com/jakunzler/cesar-school-repo.git
 **Passo 1 — Iniciar o CORE (SBI):**
 
 ```bash
-cd code/open5gs-containerized/core
+cd oran/code/open5gs-containerized/core
 ./scripts/up_core.sh
 ```
 
 **Passo 2 — Iniciar o RAN (gNB + UE):**
 
 ```bash
-cd code/open5gs-containerized/ueransim
+cd oran/code/open5gs-containerized/ueransim
 ./scripts/up_ran.sh
 ```
 
@@ -153,14 +153,14 @@ cd code/open5gs-containerized/ueransim
 ### 3. Verificar status
 
 ```bash
-cd code/open5gs-containerized/core
+cd oran/code/open5gs-containerized/core
 ./scripts/healthcheck.sh
 ```
 
 ### 4. Testar conexão do UE
 
 ```bash
-cd code/open5gs-containerized/ueransim
+cd oran/code/open5gs-containerized/ueransim
 ./scripts/test_ue_connection.sh
 ```
 
@@ -174,7 +174,7 @@ O usuário admin é criado automaticamente na inicialização do MongoDB (script
 **Se não conseguir fazer login** (ex.: volume já existia antes da configuração), execute:
 
 ```bash
-cd code/open5gs-containerized/core
+cd oran/code/open5gs-containerized/core
 ./scripts/add-webui-admin.sh
 ```
 
@@ -199,9 +199,9 @@ A partir daqui, você pode usar o WebUI para gerenciar o Open5GS. Na tela inicia
 Para parar tudo (ordem sugerida: RAN primeiro, depois CORE):
 
 ```bash
-cd code/open5gs-containerized/ueransim
+cd oran/code/open5gs-containerized/ueransim
 ./scripts/down_ran.sh
-cd code/open5gs-containerized/core
+cd oran/code/open5gs-containerized/core
 ./scripts/down_core.sh
 ```
 
@@ -216,7 +216,7 @@ cd code/open5gs-containerized/core
 Inicia o CORE Open5GS (SBI): MongoDB, NRF, SCP, AMF, SMF, AUSF, UDM, UDR, PCF, NSSF, UPF, DN e WebUI. Usa `core/docker-compose.yml`.
 
 ```bash
-cd code/open5gs-containerized/core
+cd oran/code/open5gs-containerized/core
 ./scripts/up_core.sh
 ```
 
@@ -225,7 +225,7 @@ cd code/open5gs-containerized/core
 Inicia o RAN (gNB + UE) via UERANSIM. Usa `ueransim/docker-compose.yaml` e depende das redes criadas pelo CORE (net-n2, net-n3). **Execute após `up_core.sh`.**
 
 ```bash
-cd code/open5gs-containerized/ueransim
+cd oran/code/open5gs-containerized/ueransim
 ./scripts/up_ran.sh
 ```
 
@@ -234,7 +234,7 @@ cd code/open5gs-containerized/ueransim
 Para o RAN (gNB + UE) do compose `ueransim/docker-compose.yaml`.
 
 ```bash
-cd code/open5gs-containerized/ueransim
+cd oran/code/open5gs-containerized/ueransim
 ./scripts/down_ran.sh
 ```
 
@@ -243,7 +243,7 @@ cd code/open5gs-containerized/ueransim
 Para os serviços do CORE (SBI) e remove containers/redes do `docker-compose.yml`.
 
 ```bash
-cd code/open5gs-containerized/core
+cd oran/code/open5gs-containerized/core
 ./scripts/down_core.sh
 ```
 
@@ -252,7 +252,7 @@ cd code/open5gs-containerized/core
 Verifica o status de todos os serviços e conectividade de rede.
 
 ```bash
-cd code/open5gs-containerized/core
+cd oran/code/open5gs-containerized/core
 ./scripts/healthcheck.sh
 ```
 
@@ -269,7 +269,7 @@ Testa a conexão end-to-end do UE:
 - Verifica sessão PDU
 
 ```bash
-cd code/open5gs-containerized/ueransim
+cd oran/code/open5gs-containerized/ueransim
 ./scripts/test_ue_connection.sh
 ```
 
@@ -280,7 +280,7 @@ cd code/open5gs-containerized/ueransim
 ### Teste de Conexão End-to-End
 
 ```bash
-cd code/open5gs-containerized/ueransim
+cd oran/code/open5gs-containerized/ueransim
 ./scripts/test_ue_connection.sh
 ```
 
