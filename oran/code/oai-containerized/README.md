@@ -13,7 +13,7 @@ Este laboratório utiliza **Vector Packet Processing (VPP)** no plano de usuári
 Comando para subir o Core com VPP:
 
 ```bash
-cd especializacao_oran/code/oai-containerized/
+cd code/oai-containerized/
 ./scripts/up_core.sh
 ```
 
