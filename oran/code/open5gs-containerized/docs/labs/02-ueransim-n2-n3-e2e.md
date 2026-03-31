@@ -8,6 +8,8 @@
 
 **Caminhos:** os comandos assumem a pasta `open5gs-containerized/` na raiz do laboratório (ajuste ao seu clone).
 
+**Apoio em vídeo:** [índice de vídeos](video_seq_report.md) — o [vídeo completo local](https://youtu.be/ic3_CIllb9o) inclui **tcpdump**, **Wireshark** (N2/N3) e testes de conectividade alinhados a este roteiro.
+
 ---
 
 ## 1. Subida da RAN (UERANSIM)
@@ -96,7 +98,7 @@ Em outro terminal, **reinicie** o `ueransim` para forçar novo *handshake* (`doc
 
 **No Wireshark:** filtro `sctp.port == 38412`; expanda **NGAP** para ver `NGSetupRequest` / `NGSetupResponse` se o *dissector* estiver ativo.
 
-**Evidência (se realizar este passo):** *print* com SCTP + NGAP ou anexo `.pcap`.
+**Evidência opcional (se realizar este passo):** *print* com SCTP + NGAP ou anexo `.pcap`.
 
 ---
 
@@ -116,7 +118,7 @@ O script gera *pcaps* sob `core/logs/upf/` (prefixos `n3-gtpu-*.pcap` e `n6-dn-*
 - Filtro sugerido: `udp.port == 2152`  
 - Observe **GTP-U** e, com tráfego gerado, **G-PDU** com IP interno do UE.
 
-**Evidência obrigatória:** *print* do Wireshark com **GTP-U** (porta 2152) ou anexo de `.pcap` + uma frase sobre o papel do TEID.
+**Evidência opcional:** *print* do Wireshark com **GTP-U** (porta 2152) ou anexo de `.pcap` + uma frase sobre o papel do TEID.
 
 ---
 
@@ -133,7 +135,7 @@ cd open5gs-containerized/ueransim
 
 ```bash
 docker exec ueransim ip addr show uesimtun0
-docker exec ueransim ping -c -I uesimtun0 4 8.8.8.8
+docker exec ueransim ping -c 4 -I uesimtun0 8.8.8.8
 ```
 
 **Evidência:** IP atribuído ao UE e *ping* com perda 0% (ou explicar falhas com trecho de log).
@@ -172,7 +174,7 @@ cd open5gs-containerized/ueransim
 - Parâmetros de `gnb.yaml` e `ue.yaml` descritos no relatório (N2/N3, PLMN, APN).  
 - Trechos de log UERANSIM + AMF com N2/NG Setup.  
 - (Opcional avançado) Captura SCTP/NGAP no *host* — *print* ou `.pcap`.  
-- Captura N3 (e opcionalmente N6) via `capture-n3-n6-pcaps.sh` — *print* Wireshark ou `.pcap`.  
+- (Opcional avançado) Captura N3 via `capture-n3-n6-pcaps.sh` — *print* Wireshark ou `.pcap`.  
 - Saída de `test_ue_connection.sh` (anexo).  
 - Saída de `healthcheck.sh` com RAN ligado.  
 - Parágrafo no relatório: diferença **N2** (*controle / NGAP*) vs **N3** (*plano do usuário / GTP-U*).

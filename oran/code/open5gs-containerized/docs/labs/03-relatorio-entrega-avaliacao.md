@@ -2,6 +2,8 @@
 
 Este documento orienta **alunos** (o que entregar) e **docentes** (como avaliar).
 
+**Material em vídeo:** [lista de vídeos do laboratório](video_seq_report.md). O [walkthrough completo](https://youtu.be/ic3_CIllb9o) percorre roteiros 01–03 e mostra como fechar evidências (incluindo PCAP / Wireshark) para a entrega.
+
 ---
 
 ## 1. Formato de entrega
@@ -32,21 +34,21 @@ Este documento orienta **alunos** (o que entregar) e **docentes** (como avaliar)
 ## 3. Inventário mínimo de evidências (aluno)
 
 
-| ID  | Evidência                                                                  | Roteiro |
-| --- | -------------------------------------------------------------------------- | ------- |
-| E1  | `docker --version` e `docker compose version`                              | 01      |
-| E2  | `docker compose ps` (core saudável)                                        | 01      |
-| E3  | Confirmação redes `core_net-sbi` / `core_net-n2` / `core_net-n3` e subnets | 01      |
-| E4  | Assinante criado (WebUI, script ou `mongosh`) alinhado ao `ue.yaml`        | 01      |
-| E5  | Saída completa `healthcheck.sh` (sem RAN ou com nota sobre limitações)     | 01      |
-| E6  | Amostra logs NRF + AMF + SMF + UPF                                         | 01      |
-| E7  | `docker ps` com `ueransim` **Up**                                          | 02      |
-| E8  | Trechos relevantes `gnb.yaml` / `ue.yaml`                                  | 02      |
-| E9  | Logs UERANSIM + AMF com N2 / NG Setup                                      | 02      |
-| E10 | (Opcional avançado) PCAP ou *print* Wireshark N2 (`sctp.port == 38412`)    | 02      |
-| E11 | PCAP N3 ou *print* Wireshark GTP-U (`udp.port == 2152`)                    | 02      |
-| E12 | Saída completa `test_ue_connection.sh`                                     | 02      |
-| E13 | `healthcheck.sh` com RAN ligado                                            | 02      |
+| ID  | Evidência                                                                   | Roteiro |
+| --- | --------------------------------------------------------------------------- | ------- |
+| E1  | `docker --version` e `docker compose version`                               | 01      |
+| E2  | `docker compose ps` (core saudável)                                         | 01      |
+| E3  | Confirmação redes `core_net-sbi` / `core_net-n2` / `core_net-n3` e subnets  | 01      |
+| E4  | Assinante criado (WebUI, script ou `mongosh`) alinhado ao `ue.yaml`         | 01      |
+| E5  | Saída completa `healthcheck.sh` (sem RAN ou com nota sobre limitações)      | 01      |
+| E6  | Amostra logs NRF + AMF + SMF + UPF                                          | 01      |
+| E7  | `docker ps` com `ueransim` **Up**                                           | 02      |
+| E8  | Trechos relevantes `gnb.yaml` / `ue.yaml`                                   | 02      |
+| E9  | Logs UERANSIM + AMF com N2 / NG Setup                                       | 02      |
+| E10 | (Opcional avançado) PCAP ou *print* Wireshark N2 (`sctp.port == 38412`)     | 02      |
+| E11 | (Opcional avançado) PCAP N3 ou *print* Wireshark GTP-U (`udp.port == 2152`) | 02      |
+| E12 | Saída completa `test_ue_connection.sh`                                      | 02      |
+| E13 | `healthcheck.sh` com RAN ligado                                             | 02      |
 
 
 Falta **evidência obrigatória** marcada nos roteiros → desconto na rubrica «Completude».

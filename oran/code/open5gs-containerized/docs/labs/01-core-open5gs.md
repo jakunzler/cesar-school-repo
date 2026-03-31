@@ -4,6 +4,8 @@
 
 **Duração indicativa:** 45–60 min (primeira execução, incluindo *pull* de imagens).
 
+**Apoio em vídeo:** [índice de vídeos do lab](video_seq_report.md) (série GCP e [walkthrough completo](https://youtu.be/ic3_CIllb9o) com core + RAN + Wireshark).
+
 ---
 
 ## 1. Preparação do ambiente

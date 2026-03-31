@@ -361,6 +361,7 @@ DN_IMAGE=alpine:latest
 ## Documentação Adicional
 
 - `docs/labs/INDICE.md`: Roteiros de laboratório (core, UERANSIM, N2/N3, E2E, relatório)
+- `docs/labs/video_seq_report.md`: Vídeos de apoio (série GCP + [walkthrough completo local](https://youtu.be/ic3_CIllb9o) com Wireshark)
 - `core/docs/CORE.md`: Documentação consolidada do Core (arquitetura, IPs, correções, scripts, **WebUI admin**, troubleshooting)
 - `ueransim/docs/RAN.md`: Documentação consolidada da RAN (UERANSIM, gNB, UE, configuração, troubleshooting)
 
