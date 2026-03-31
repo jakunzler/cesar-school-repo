@@ -48,8 +48,26 @@ echo "Iniciando serviço UERANSIM..."
 docker compose up -d
 
 echo ""
-echo "Aguardando UERANSIM iniciar..."
-sleep 10
+echo "Aguardando UERANSIM ficar estável (running)..."
+WAIT_SECS=10
+for i in $(seq 1 "$WAIT_SECS"); do
+    state="$(docker inspect -f '{{.State.Status}}' ueransim 2>/dev/null || echo missing)"
+    if [ "$state" = "running" ]; then
+        # Evita race: health/restart logo após "running"
+        sleep 2
+        state="$(docker inspect -f '{{.State.Status}}' ueransim 2>/dev/null || echo missing)"
+        if [ "$state" = "running" ]; then
+            break
+        fi
+    fi
+    if [ "$i" -eq "$WAIT_SECS" ]; then
+        echo "ERRO: Container ueransim não ficou running (último estado: $state)."
+        echo "Últimas linhas do log:"
+        docker logs --tail 80 ueransim 2>&1 || true
+        exit 1
+    fi
+    sleep 1
+done
 
 echo ""
 echo "Status do RAN/UERANSIM:"

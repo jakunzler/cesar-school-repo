@@ -1,16 +1,27 @@
-#!/bin/sh
+#!/bin/bash
 set -eu
 
-# Ajuste paths conforme a sua imagem:
-# - alguns builds têm "nr-gnb"/"nr-ue"
-# - outros têm "gnb"/"ue"
-# - outros instalam em /ueransim/bin
-#
-# Descobrir rápido:
-# docker run --rm -it ueransim:latest sh -lc 'ls -R / | grep -iE "nr-gnb|nr-ue|ueransim" | head'
+# Binários variam por imagem:
+# - gradiant/ueransim: /usr/local/bin/nr-gnb, /usr/local/bin/nr-ue
+# - outras: cwd com ./nr-gnb ou /ueransim/bin/...
+resolve_nr_bin() {
+  local base="$1"
+  for path in "/usr/local/bin/${base}" "./${base}" "/ueransim/bin/${base}"; do
+    if [ -x "$path" ]; then
+      printf '%s' "$path"
+      return 0
+    fi
+  done
+  return 1
+}
 
-GNB_BIN="${GNB_BIN:-./nr-gnb}"
-UE_BIN="${UE_BIN:-./nr-ue}"
+if [ -z "${GNB_BIN:-}" ]; then
+  GNB_BIN="$(resolve_nr_bin nr-gnb)" || { echo "[entrypoint] nr-gnb não encontrado"; exit 1; }
+fi
+if [ -z "${UE_BIN:-}" ]; then
+  UE_BIN="$(resolve_nr_bin nr-ue)" || { echo "[entrypoint] nr-ue não encontrado"; exit 1; }
+fi
+echo "[entrypoint] GNB_BIN=$GNB_BIN UE_BIN=$UE_BIN"
 
 echo "[entrypoint] starting gNB..."
 $GNB_BIN -c /ueransim/config/gnb.yaml &

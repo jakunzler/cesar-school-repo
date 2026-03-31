@@ -21,14 +21,14 @@ echo "=========================================="
 echo ""
 
 # Verificar se MongoDB está rodando
-if ! docker ps | grep -q "mongodb.*Up"; then
+if ! docker compose ps | grep -q "mongodb.*Up"; then
     echo -e "${RED}❌ MongoDB não está rodando${NC}"
     echo "Execute: docker up -d mongodb"
     exit 1
 fi
 
-# Dados do subscriber (do arquivo ue.yaml)
-IMSI="001010000000001"
+# Deve coincidir com supi em ueransim/configs/ue.yaml (sem prefixo "imsi-")
+IMSI="001010000000002"
 MSISDN="33638060000"
 K="465B5CE8B199B49FAA5F0A2EE238A6B0"
 OP="E8ED289DEBA952E4283B54E88E6183B8"
@@ -40,17 +40,22 @@ echo "  IMSI: $IMSI"
 echo "  MSISDN: $MSISDN"
 echo ""
 
+# Usa o serviço "mongodb" do compose (container pode ser open5gs-mongodb-containerized).
+mongo_eval() {
+    docker compose exec -T mongodb mongosh open5gs --quiet --eval "$1"
+}
+
 # Verificar se já existe
-EXISTS=$(docker exec mongodb mongosh open5gs --quiet --eval "db.subscribers.countDocuments({imsi: '$IMSI'})" 2>/dev/null | tr -d '\n' || echo "0")
+EXISTS=$(mongo_eval "db.subscribers.countDocuments({imsi: '$IMSI'})" 2>/dev/null | tr -d '\n\r' || echo "0")
 
 if [ "$EXISTS" != "0" ]; then
     echo -e "${YELLOW}⚠️  Subscriber já existe. Removendo...${NC}"
-    docker exec mongodb mongosh open5gs --quiet --eval "db.subscribers.deleteOne({imsi: '$IMSI'})" >/dev/null 2>&1
+    mongo_eval "db.subscribers.deleteOne({imsi: '$IMSI'})" >/dev/null 2>&1 || true
 fi
 
-# Adicionar subscriber
+# Adicionar subscriber (if evita que set -e mate o script sem mensagem se o insert falhar)
 echo -e "${YELLOW}Inserindo subscriber no MongoDB...${NC}"
-docker exec mongodb mongosh open5gs --quiet --eval "
+if mongo_eval "
 db.subscribers.insertOne({
     imsi: '$IMSI',
     msisdn: '$MSISDN',
@@ -75,17 +80,16 @@ db.subscribers.insertOne({
     'subscribed_rau_tau_timer': 600,
     'ue_usage_setting': 0
 })
-" >/dev/null 2>&1
-
-if [ $? -eq 0 ]; then
+" >/dev/null 2>&1; then
     echo -e "${GREEN}✅ Subscriber adicionado com sucesso!${NC}"
     echo ""
     echo "Verificando subscriber:"
-    docker exec mongodb mongosh open5gs --quiet --eval "db.subscribers.findOne({imsi: '$IMSI'}, {imsi: 1, msisdn: 1, 'nssai': 1})" 2>/dev/null | head -10
+    mongo_eval "db.subscribers.findOne({imsi: '$IMSI'}, {imsi: 1, msisdn: 1, 'nssai': 1})" 2>/dev/null | head -10
     echo ""
-    echo -e "${YELLOW}💡 Dica: Reinicie o UE para tentar registrar novamente:${NC}"
-    echo "  docker restart ueransim-ue"
+    echo -e "${YELLOW}💡 Dica: Reinicie o UERANSIM para registrar de novo:${NC}"
+    echo "  docker restart ueransim"
 else
-    echo -e "${RED}❌ Erro ao adicionar subscriber${NC}"
+    echo -e "${RED}❌ Erro ao adicionar subscriber (mongosh falhou). Rode sem redirecionar stderr ou:${NC}"
+    echo "  docker compose exec -T mongodb mongosh open5gs --eval 'db.subscribers.find()'"
     exit 1
 fi
