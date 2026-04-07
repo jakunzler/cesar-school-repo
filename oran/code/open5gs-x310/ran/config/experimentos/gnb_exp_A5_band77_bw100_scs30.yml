@@ -1,7 +1,3 @@
-# Experimento A4 — Outra banda (n77), 100 MHz, SCS 30 kHz — eixo RF vs taxa digital
-# Ajuste dl_arfcn ao centro licenciado em n77; confirme suporte da daughterboard.
-# Roteiro: open5gs-x310/ROTEIRO_REGISTRO_FH_OFH_CPRI_eCPRI.md
-
 cu_cp:
   amf:
     addr: 127.0.1.100

@@ -1,9 +1,3 @@
-# Experimento A5 — Mesmo perfil RF que A1 para teste 1 GbE × 10 GbE (Aula 04)
-# O YAML não força 1 GbE: no host, ligue o X310 a uma NIC 1 GbE (SFP 1G) ou limite
-# negociação conforme política do laboratório e repita o cenário de 100 MHz / 184.32 MSps.
-# Hipótese pedagógica: possível saturação/underrun quando R_IQ + overhead ~ teto ~1 Gb/s útil.
-# Roteiro: open5gs-x310/ROTEIRO_REGISTRO_FH_OFH_CPRI_eCPRI.md
-
 cu_cp:
   amf:
     addr: 127.0.1.100

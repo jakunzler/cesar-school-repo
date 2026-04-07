@@ -1,7 +1,3 @@
-# Experimento A2a — Reduzir BW (40 MHz, SCS 30 kHz, banda n78)
-# Par srate/clock sugerido: validar com o srsRAN Project; ajuste se o gNB rejeitar.
-# Roteiro: open5gs-x310/ROTEIRO_REGISTRO_FH_OFH_CPRI_eCPRI.md
-
 cu_cp:
   amf:
     addr: 127.0.1.100

@@ -1,7 +1,3 @@
-# Experimento A1 — NR wideband (100 MHz, SCS 30 kHz) — taxa no “fronthaul de bancada”
-# Parâmetros RF idênticos ao A0; foco em documentar srate/master_clock e carga (CPU/rede).
-# Roteiro: open5gs-x310/ROTEIRO_REGISTRO_FH_OFH_CPRI_eCPRI.md
-
 cu_cp:
   amf:
     addr: 127.0.1.100
