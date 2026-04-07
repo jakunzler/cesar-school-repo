@@ -1,0 +1,46 @@
+# Experimento A5 — Mesmo perfil RF que A1 para teste 1 GbE × 10 GbE (Aula 04)
+# O YAML não força 1 GbE: no host, ligue o X310 a uma NIC 1 GbE (SFP 1G) ou limite
+# negociação conforme política do laboratório e repita o cenário de 100 MHz / 184.32 MSps.
+# Hipótese pedagógica: possível saturação/underrun quando R_IQ + overhead ~ teto ~1 Gb/s útil.
+# Roteiro: open5gs-x310/ROTEIRO_REGISTRO_FH_OFH_CPRI_eCPRI.md
+
+cu_cp:
+  amf:
+    addr: 127.0.1.100
+    port: 38412
+    bind_addr: 127.0.0.1
+    supported_tracking_areas:
+      - tac: 7
+        plmn_list:
+          - plmn: "00101"
+            tai_slice_support_list:
+              - sst: 1
+ru_sdr:
+  device_driver: uhd
+  device_args: type=x300, addr=192.168.40.3, master_clock_rate=184.32e6
+  clock: internal
+  sync: internal
+  srate: 184.32  # Valid sampling rates are 15.36, 23.04, 46.08, 61.44, 92.16, 122.88, 184.32 MHz
+  tx_gain: 30
+  rx_gain: 30
+
+cell_cfg:
+  dl_arfcn: 650000
+  band: 78
+  channel_bandwidth_MHz: 100
+  common_scs: 30
+  plmn: "00101"
+  tac: 7
+  pci: 1
+  nof_antennas_dl: 1
+  nof_antennas_ul: 1
+
+log:
+  filename: /tmp/gnb_A5.log
+  all_level: info
+
+pcap:
+  mac_enable: false
+  mac_filename: /tmp/gnb_A5_mac.pcap
+  ngap_enable: false
+  ngap_filename: /tmp/gnb_A5_ngap.pcap
