@@ -14,6 +14,9 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=ran-detect.sh
+source "$SCRIPT_DIR/ran-detect.sh"
 cd "$PROJECT_DIR"
 
 echo "=========================================="
@@ -21,11 +24,14 @@ echo "Teste de Encapsulamento GTP-U"
 echo "=========================================="
 echo ""
 
-# Após unificação, UE e gNB rodam no mesmo serviço/container `ueransim`
-UE_CONTAINER="ueransim"
-GNB_CONTAINER="ueransim"
-# Usar o nome do serviço da UPF-A conforme docker-compose
+UE_CONTAINER=$(find_running_ue || true)
+GNB_CONTAINER=$(find_running_gnb || true)
 UPF_A_CONTAINER="upf-a"
+
+if [ -z "$UE_CONTAINER" ]; then
+    echo -e "${RED}❌ Nenhum container de UE em execução${NC}"
+    exit 1
+fi
 
 # Verificar se tcpdump está disponível
 if ! docker compose exec -T $UPF_A_CONTAINER which tcpdump >/dev/null 2>&1; then
@@ -44,8 +50,8 @@ echo ""
 # Arquivo temporário para capturar saída do tcpdump no host
 TMP_CAPTURE="$(mktemp)"
 
-echo "Enviando tráfego do UE..."
-docker compose exec -T $UE_CONTAINER ping -c 5 8.8.8.8 >/dev/null 2>&1 &
+echo "Enviando tráfego do UE ($UE_CONTAINER)..."
+ue_ping "$UE_CONTAINER" 8.8.8.8 5 2 >/dev/null 2>&1 &
 
 echo "Capturando pacotes GTP-U na UPF (porta 2152)..."
 # Executa tcpdump em background dentro do container, redirecionando saída para o host

@@ -15,7 +15,9 @@
 #       logs/upf-a/n3-gtpu-<timestamp>.pcap
 #       logs/upf-a/n6-dn-<timestamp>.pcap
 
-set -e
+set -euo pipefail
+
+CAPTURE_SEC="${CAPTURE_SEC:-20}"
 
 # Cores
 RED='\033[0;31m'
@@ -25,9 +27,11 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=ran-detect.sh
+source "$SCRIPT_DIR/ran-detect.sh"
 cd "$PROJECT_DIR"
 
-UE_CONTAINER="ueransim"
 UPF_A_CONTAINER="upf-a"
 
 echo "==============================================="
@@ -39,18 +43,21 @@ echo ""
 if ! docker info > /dev/null 2>&1; then
     echo -e "${RED}ERRO: Docker não está rodando. Inicie o Docker primeiro.${NC}"
     exit 1
-fi>
+fi
 
-# Verificar se serviços necessários estão rodando
-for svc in "$UPF_A_CONTAINER" "$UE_CONTAINER"; do
-  if ! docker compose ps --format "{{.Service}}" 2>/dev/null | grep -q "^${svc}$"; then
-    echo -e "${RED}ERRO: serviço '${svc}' não está rodando via docker compose.${NC}"
+UE_CONTAINER=$(find_running_ue || true)
+if [ -z "$UE_CONTAINER" ]; then
+    echo -e "${RED}ERRO: nenhum container de UE em execução.${NC}"
     echo "      Certifique-se de que o CORE e o RAN estão ativos:"
     echo "        ./scripts/up_core.sh"
     echo "        ./scripts/up_ran.sh"
     exit 1
-  fi
-done
+fi
+
+if ! docker compose ps --format "{{.Service}}" 2>/dev/null | grep -q "^${UPF_A_CONTAINER}$"; then
+    echo -e "${RED}ERRO: serviço '${UPF_A_CONTAINER}' não está rodando via docker compose.${NC}"
+    exit 1
+fi
 
 echo "🔍 Detectando interfaces N3 (10.30.x.x) e N6 (10.50.x.x) na UPF-A..."
 
@@ -90,20 +97,48 @@ echo "  - logs/upf-a/$(basename "$N3_PCAP")"
 echo "  - logs/upf-a/$(basename "$N6_PCAP")"
 echo ""
 
-echo "Iniciando capturas em background dentro da UPF-A..."
+echo "Iniciando capturas na UPF-A (${CAPTURE_SEC}s por interface, modo detached)..."
 
-docker compose exec -T "$UPF_A_CONTAINER" sh -lc "tcpdump -i '$N3_IF' -w '$N3_PCAP' -c 500 'udp port 2152'" >/dev/null 2>&1 &
-PID_N3=$!
+# -d: tcpdump roda dentro do container (evita wait infinito no docker compose exec do host).
+# timeout: encerra após CAPTURE_SEC mesmo com pouco tráfego (-c 500 nunca era atingido com 30 pings).
+docker compose exec -d "$UPF_A_CONTAINER" sh -lc \
+  "timeout ${CAPTURE_SEC} tcpdump -i '${N3_IF}' -w '${N3_PCAP}' -n 'udp port 2152' 2>/dev/null" || true
+docker compose exec -d "$UPF_A_CONTAINER" sh -lc \
+  "timeout ${CAPTURE_SEC} tcpdump -i '${N6_IF}' -w '${N6_PCAP}' -n 2>/dev/null" || true
 
-docker compose exec -T "$UPF_A_CONTAINER" sh -lc "tcpdump -i '$N6_IF' -w '$N6_PCAP' -c 500" >/dev/null 2>&1 &
-PID_N6=$!
+sleep 2
 
-echo "Gerando tráfego a partir do UE (ping 8.8.8.8)..."
-docker compose exec -T "$UE_CONTAINER" ping -c 30 -W 1 8.8.8.8 >/dev/null 2>&1 || true
+echo "Gerando tráfego a partir do UE ($UE_CONTAINER, ping 8.8.8.8)..."
+ue_ping "$UE_CONTAINER" 8.8.8.8 "$CAPTURE_SEC" 1 >/dev/null 2>&1 &
+PING_PID=$!
 
-echo "Aguardando término das capturas (ou até completarem 500 pacotes por interface)..."
-wait "$PID_N3" || true
-wait "$PID_N6" || true
+echo -n "Aguardando capturas (${CAPTURE_SEC}s)"
+for _ in $(seq 1 "$CAPTURE_SEC"); do
+  sleep 1
+  echo -n "."
+done
+echo ""
+
+wait "$PING_PID" 2>/dev/null || true
+sleep 1
+
+HOST_N3="logs/upf-a/$(basename "$N3_PCAP")"
+HOST_N6="logs/upf-a/$(basename "$N6_PCAP")"
+MISSING=0
+# Header pcap global = 24 bytes; abaixo disso não há pacotes capturados.
+for f in "$HOST_N3" "$HOST_N6"; do
+  size=$(stat -c%s "$f" 2>/dev/null || echo 0)
+  if [ ! -f "$f" ] || [ "$size" -le 24 ]; then
+    echo -e "${YELLOW}⚠️  Sem pacotes capturados: $f (${size} bytes)${NC}"
+    MISSING=1
+  else
+    echo -e "${GREEN}  ✓ $f (${size} bytes)${NC}"
+  fi
+done
+
+if [ "$MISSING" -eq 1 ]; then
+  echo -e "${YELLOW}Dica: aumente CAPTURE_SEC ou gere mais tráfego (ex.: CAPTURE_SEC=30 ./scripts/capture-n3-n6-pcaps.sh)${NC}"
+fi
 
 echo ""
 echo -e "${GREEN}✅ Capturas finalizadas.${NC}"

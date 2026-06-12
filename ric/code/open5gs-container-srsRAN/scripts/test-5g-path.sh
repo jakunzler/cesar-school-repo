@@ -16,23 +16,24 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Diretório do projeto
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=ran-detect.sh
+source "$SCRIPT_DIR/ran-detect.sh"
 cd "$PROJECT_DIR"
 
-# Containers (nomes dos serviços no docker-compose.yml)
-# Após unificação, gNB e UE rodam no mesmo serviço `ueransim`
-UERANSIM_SERVICE="ueransim"
 AMF_SERVICE="amf"
 SMF_SERVICE="smf"
 UPF_A_SERVICE="upf-a"
 UPF_B_SERVICE="upf-b"
 
-# Nomes dos containers (com sufixo -containerized)
-UERANSIM_CONTAINER="ueransim-containerized"
 AMF_CONTAINER="open5gs-amf-containerized"
 SMF_CONTAINER="open5gs-smf-containerized"
 UPF_A_CONTAINER="open5gs-upf-containerized-a"
 UPF_B_CONTAINER="open5gs-upf-containerized-b"
+
+UE_CONTAINER=$(find_running_ue || true)
+GNB_CONTAINER=$(find_running_gnb || true)
 
 # Contadores
 TESTS_PASSED=0
@@ -42,20 +43,29 @@ TESTS_FAILED=0
 check_containers() {
     local missing=0
     echo "Verificando containers..."
-    for service in $UERANSIM_SERVICE $AMF_SERVICE $SMF_SERVICE $UPF_A_SERVICE; do
-        # Verificar se o serviço está rodando (pode ter nome diferente do container)
+
+    if [ -z "$UE_CONTAINER" ]; then
+        echo -e "${RED}❌ Nenhum container de UE em execução${NC}"
+        ((missing++))
+    fi
+    if [ -z "$GNB_CONTAINER" ]; then
+        echo -e "${RED}❌ Nenhum container de gNB em execução${NC}"
+        ((missing++))
+    fi
+
+    for service in $AMF_SERVICE $SMF_SERVICE $UPF_A_SERVICE; do
         if ! docker compose ps --format "{{.Service}}" 2>/dev/null | grep -q "^${service}$"; then
             echo -e "${RED}❌ Serviço $service não está rodando${NC}"
             ((missing++))
         fi
     done
-    
+
     if [ $missing -gt 0 ]; then
-        echo -e "${RED}Erro: $missing serviço(s) não está(ão) rodando${NC}"
-        echo "Execute: docker compose up -d"
+        echo -e "${RED}Erro: $missing componente(s) não está(ão) rodando${NC}"
+        echo "Execute: ./scripts/up.sh"
         exit 1
     fi
-    echo -e "${GREEN}✅ Todos os containers estão rodando${NC}"
+    echo -e "${GREEN}✅ Containers ativos (UE: $UE_CONTAINER, gNB: $GNB_CONTAINER)${NC}"
     echo ""
 }
 
@@ -121,8 +131,8 @@ echo "--------------------------------------------"
 
 # 1.1 UE está registrado
 echo -n "  Testando: UE registrado no AMF... "
-if docker compose logs $UERANSIM_SERVICE 2>&1 | grep -q "MM-REGISTERED"; then
-    UE_REG_COUNT=$(docker compose logs $UERANSIM_SERVICE 2>&1 | grep -c "MM-REGISTERED" || echo "0")
+if docker logs "$UE_CONTAINER" 2>&1 | grep -q "MM-REGISTERED"; then
+    UE_REG_COUNT=$(docker logs "$UE_CONTAINER" 2>&1 | grep -c "MM-REGISTERED" || echo "0")
     echo -e "${GREEN}✅ UE está registrado ($UE_REG_COUNT vez(es))${NC}"
     ((TESTS_PASSED++))
 else
@@ -134,9 +144,9 @@ fi
 echo -n "  Testando: Sessão PDU estabelecida... "
 # No Open5GS/UERANSIM, a sessão PDU é estabelecida implicitamente quando há tráfego
 # Se o UE tem IP e pode fazer ping, a sessão está funcionando
-UE_IP_CHECK=$(docker compose exec -T $UERANSIM_SERVICE ip addr show 2>/dev/null | grep -oP 'inet \K10\.60\.\d+\.\d+' | head -1 || echo "")
+UE_IP_CHECK=$(docker exec "$UE_CONTAINER" ip -4 addr show 2>/dev/null | grep -oP 'inet \K10\.60\.\d+\.\d+' | head -1 || echo "")
 if [ -n "$UE_IP_CHECK" ]; then
-    if docker compose exec -T $UERANSIM_SERVICE ping -c 1 -W 1 8.8.8.8 >/dev/null 2>&1; then
+    if ue_ping_ok "$UE_CONTAINER" 8.8.8.8 1 1; then
         echo -e "${GREEN}✅ Sessão PDU funcional (UE tem IP e conectividade)${NC}"
         ((TESTS_PASSED++))
     else
@@ -148,7 +158,7 @@ else
 fi
 
 # 1.3 IP atribuído ao UE
-UE_IP=$(docker compose exec -T $UERANSIM_SERVICE ip addr show 2>/dev/null | grep -oP 'inet \K10\.60\.\d+\.\d+' | head -1 || echo "")
+UE_IP=$(docker exec "$UE_CONTAINER" ip -4 addr show 2>/dev/null | grep -oP 'inet \K10\.60\.\d+\.\d+' | head -1 || echo "")
 if [ -n "$UE_IP" ]; then
     echo -e "  ${GREEN}✅ IP do UE: $UE_IP${NC}"
     ((TESTS_PASSED++))
@@ -189,7 +199,7 @@ else
 fi
 
 # 2.3 Rota para UE na UPF
-UE_IP_CHECK=$(docker compose exec -T $UERANSIM_SERVICE ip addr show 2>/dev/null | grep -oP 'inet \K10\.60\.\d+\.\d+' | head -1 || echo "")
+UE_IP_CHECK=$(docker exec "$UE_CONTAINER" ip -4 addr show 2>/dev/null | grep -oP 'inet \K10\.60\.\d+\.\d+' | head -1 || echo "")
 if [ -n "$UE_IP_CHECK" ]; then
     UPF_ROUTE_OUTPUT=$(docker compose exec -T $UPF_A_SERVICE ip route show 2>&1 | grep "10\.60" || echo "")
     if [ -n "$UPF_ROUTE_OUTPUT" ]; then
@@ -203,8 +213,8 @@ fi
 
 # 2.4 Verificar se rota padrão do UE aponta para gateway ogstun (sessão PDU)
 if [ -n "$UE_IP" ]; then
-    UE_GW=$(docker compose exec -T $UERANSIM_SERVICE ip route show default 2>/dev/null | grep -oP 'via \K[\d.]+' | head -1 || echo "")
-    UE_DEFAULT_DEV=$(docker compose exec -T $UERANSIM_SERVICE ip route show default 2>/dev/null | grep -oP 'dev \K\w+' | head -1 || echo "")
+    UE_GW=$(docker exec "$UE_CONTAINER" ip route show default 2>/dev/null | grep -oP 'via \K[\d.]+' | head -1 || echo "")
+    UE_DEFAULT_DEV=$(docker exec "$UE_CONTAINER" ip route show default 2>/dev/null | grep -oP 'dev \K\w+' | head -1 || echo "")
     
     if [ -n "$UE_GW" ] && [ -n "$UE_DEFAULT_DEV" ]; then
         if [ "$UE_GW" = "10.60.0.1" ] && [ "$UE_DEFAULT_DEV" = "eth1" ]; then
@@ -229,7 +239,7 @@ echo "--------------------------------------------"
 if [ -n "$UE_IP" ]; then
     test_check \
         "Ping para 8.8.8.8 do UE" \
-        "docker compose exec -T $UERANSIM_SERVICE ping -c 2 -W 2 8.8.8.8 >/dev/null 2>&1"
+        "ue_ping_ok \"$UE_CONTAINER\" 8.8.8.8 2 2"
 fi
 
 # 3.2 Verificar se tráfego está passando pela ogstun
@@ -240,7 +250,7 @@ if [ -n "$UE_IP" ] && docker compose exec -T $UPF_A_SERVICE test -f /sys/class/n
     BYTES_BEFORE=$(docker compose exec -T $UPF_A_SERVICE cat /sys/class/net/ogstun/statistics/tx_bytes 2>/dev/null | tr -d '\n\r ' || echo "0")
     
     # Enviar tráfego
-    docker compose exec -T $UERANSIM_SERVICE ping -c 5 -W 1 8.8.8.8 >/dev/null 2>&1 || true
+    ue_ping "$UE_CONTAINER" 8.8.8.8 5 1 >/dev/null 2>&1 || true
     sleep 3
     
     # Capturar contadores depois
@@ -271,7 +281,7 @@ echo "--------------------------------------------"
 # 4.1 NG Setup bem-sucedido
 test_check_msg \
     "NG Setup bem-sucedido" \
-    "docker compose logs $UERANSIM_SERVICE 2>&1 | grep -c 'NG Setup.*successful\|NG Setup procedure is successful'" \
+    "docker logs \"$GNB_CONTAINER\" 2>&1 | grep -c 'NG Setup.*successful\|NG Setup procedure is successful'" \
     "NG Setup OK" \
     "NG Setup não encontrado"
 
@@ -286,7 +296,7 @@ test_check_msg \
 echo -n "  Testando: Sessão PDU ativa no SMF... "
 # No Open5GS, a sessão PDU pode não aparecer explicitamente nos logs
 # mas está ativa se o UE tem IP e conectividade
-if [ -n "$UE_IP" ] && docker compose exec -T $UE_SERVICE ping -c 1 -W 1 8.8.8.8 >/dev/null 2>&1; then
+if [ -n "$UE_IP" ] && ue_ping_ok "$UE_CONTAINER" 8.8.8.8 1 1; then
     echo -e "${GREEN}✅ Sessão PDU funcional (verificada via conectividade)${NC}"
     ((TESTS_PASSED++))
 else
@@ -333,13 +343,13 @@ fi
 # 5.2 Verificar GTP-U no gNB
 echo -n "  Testando: GTP-U configurado no gNB... "
 # Verificar se gNB (dentro do container UERANSIM) tem interface N3 (GTP-U)
-GNB_N3_IP=$(docker compose exec -T $UERANSIM_SERVICE ip addr show 2>/dev/null | grep -oP 'inet \K10\.30\.\d+\.\d+' | head -1 || echo "")
+GNB_N3_IP=$(docker exec "$GNB_CONTAINER" ip -4 addr show 2>/dev/null | grep -oP 'inet \K10\.30\.\d+\.\d+' | head -1 || echo "")
 if [ -n "$GNB_N3_IP" ]; then
     # Verificar se porta GTP-U está escutando no gNB
-    if docker compose exec -T $UERANSIM_SERVICE ss -uln 2>/dev/null | grep -q ":2152"; then
+    if docker exec "$GNB_CONTAINER" ss -uln 2>/dev/null | grep -q ":2152"; then
         echo -e "${GREEN}✅ GTP-U configurado no gNB (interface N3: $GNB_N3_IP, porta 2152)${NC}"
         ((TESTS_PASSED++))
-    elif docker compose logs $UERANSIM_SERVICE 2>&1 | grep -qiE "GTP|gtpu|2152"; then
+    elif docker logs "$GNB_CONTAINER" 2>&1 | grep -qiE "GTP|gtpu|2152"; then
         echo -e "${GREEN}✅ GTP-U configurado no gNB (encontrado nos logs)${NC}"
         ((TESTS_PASSED++))
     else
@@ -349,7 +359,7 @@ if [ -n "$GNB_N3_IP" ]; then
     fi
 else
     # Fallback: verificar nos logs
-    GTP_COUNT=$(docker compose logs $UERANSIM_SERVICE 2>&1 | grep -c "GTP\|gtpu\|2152" || echo "0")
+    GTP_COUNT=$(docker logs "$GNB_CONTAINER" 2>&1 | grep -c "GTP\|gtpu\|2152" || echo "0")
     GTP_COUNT=$(echo "$GTP_COUNT" | tr -d '\n\r ')
     if [ "${GTP_COUNT:-0}" -gt 0 ] 2>/dev/null; then
         echo -e "${GREEN}✅ GTP-U encontrado nos logs do gNB${NC}"
@@ -364,7 +374,7 @@ echo "🔍 6. Verificação de Bypass (Testes Críticos)"
 echo "--------------------------------------------"
 
 # 6.1 Verificar se há regras de roteamento específicas na UPF
-UE_IP_CHECK=$(docker compose exec -T $UERANSIM_SERVICE ip addr show 2>/dev/null | grep -oP 'inet \K10\.60\.\d+\.\d+' | head -1 || echo "")
+UE_IP_CHECK=$(docker exec "$UE_CONTAINER" ip -4 addr show 2>/dev/null | grep -oP 'inet \K10\.60\.\d+\.\d+' | head -1 || echo "")
 if [ -n "$UE_IP_CHECK" ]; then
     echo -n "  Verificando rotas na UPF... "
     UPF_ROUTES=$(docker compose exec -T $UPF_A_SERVICE ip route show 2>/dev/null | grep -c "10\.60\.0" || echo "0")
@@ -383,7 +393,7 @@ if [ -n "$UE_IP" ]; then
     echo -n "  Verificando sessão PDU ativa... "
     # No Open5GS/UERANSIM, a sessão PDU é estabelecida implicitamente quando há tráfego
     # Verificar via conectividade e tráfego na ogstun
-    if docker compose exec -T $UERANSIM_SERVICE ping -c 1 -W 1 8.8.8.8 >/dev/null 2>&1; then
+    if ue_ping_ok "$UE_CONTAINER" 8.8.8.8 1 1; then
         # Verificar se há tráfego na ogstun como indicador de sessão ativa
         TX_PACKETS=$(docker compose exec -T $UPF_A_SERVICE cat /sys/class/net/ogstun/statistics/tx_packets 2>/dev/null | tr -d '\n\r ' || echo "0")
         if [ "${TX_PACKETS:-0}" -gt 0 ] 2>/dev/null; then
@@ -433,17 +443,17 @@ fi
 if [ -n "$UE_IP" ]; then
     echo -n "  Verificando sessão PDU no UE... "
     # Verificar se UE tem IP e conectividade (indicadores de sessão PDU funcional)
-    if docker compose exec -T $UERANSIM_SERVICE ping -c 1 -W 1 8.8.8.8 >/dev/null 2>&1; then
+    if ue_ping_ok "$UE_CONTAINER" 8.8.8.8 1 1; then
         # Verificar rota padrão para confirmar que está usando sessão PDU
-        UE_GW=$(docker compose exec -T $UERANSIM_SERVICE ip route show default 2>/dev/null | grep -oP 'via \K[\d.]+' | head -1 || echo "")
-        UE_DEV=$(docker compose exec -T $UERANSIM_SERVICE ip route show default 2>/dev/null | grep -oP 'dev \K\w+' | head -1 || echo "")
+        UE_GW=$(docker exec "$UE_CONTAINER" ip route show default 2>/dev/null | grep -oP 'via \K[\d.]+' | head -1 || echo "")
+        UE_DEV=$(docker exec "$UE_CONTAINER" ip route show default 2>/dev/null | grep -oP 'dev \K\w+' | head -1 || echo "")
         
         if [ "$UE_GW" = "10.60.0.1" ] && [ "$UE_DEV" = "eth1" ]; then
             echo -e "${GREEN}✅ Sessão PDU funcional no UE (IP: $UE_IP, rota via ogstun)${NC}"
             ((TESTS_PASSED++))
         else
             # Tentar verificar nos logs como fallback
-            UE_SESSION=$(docker compose logs $UERANSIM_SERVICE 2>&1 | grep -c "PDU.*session\|IP.*assigned\|session.*established" || echo "0")
+            UE_SESSION=$(docker logs "$UE_CONTAINER" 2>&1 | grep -c "PDU.*session\|IP.*assigned\|session.*established" || echo "0")
             UE_SESSION=$(echo "$UE_SESSION" | tr -d '\n\r ')
             if [ "${UE_SESSION:-0}" -gt 0 ] 2>/dev/null; then
                 echo -e "${GREEN}✅ Sessão PDU detectada no UE (${UE_SESSION} referência(s) nos logs)${NC}"

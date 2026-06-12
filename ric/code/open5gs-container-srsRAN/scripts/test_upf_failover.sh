@@ -7,8 +7,12 @@
 # Não usar set -e para permitir tratamento de erros
 set +e
 
-# Após unificação, UE e gNB rodam no mesmo serviço/container `ueransim`
-UE_CONTAINER="ueransim"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=ran-detect.sh
+source "$SCRIPT_DIR/ran-detect.sh"
+cd "$PROJECT_DIR"
+
 UPF_A_CONTAINER="upf-a"
 UPF_B_CONTAINER="upf-b"
 SMF_CONTAINER="smf"
@@ -22,16 +26,22 @@ echo "Open5GS Containerized"
 echo "=========================================="
 echo ""
 
-# Verificar se os containers estão rodando
+UE_CONTAINER=$(find_running_ue || true)
+if [ -z "$UE_CONTAINER" ]; then
+    echo "❌ Erro: Nenhum container de UE em execução!"
+    echo "   Execute: ./scripts/up.sh"
+    exit 1
+fi
+
 MISSING_CONTAINERS=()
-for container in "$UE_CONTAINER" "$UPF_A_CONTAINER" "$UPF_B_CONTAINER" "$SMF_CONTAINER"; do
-    if ! docker compose ps | grep -q "$container.*Up"; then
-        MISSING_CONTAINERS+=("$container")
+for svc in "$UPF_A_CONTAINER" "$UPF_B_CONTAINER" "$SMF_CONTAINER"; do
+    if ! docker compose ps "$svc" 2>/dev/null | grep -q "Up"; then
+        MISSING_CONTAINERS+=("$svc")
     fi
 done
 
 if [ ${#MISSING_CONTAINERS[@]} -gt 0 ]; then
-    echo "❌ Erro: Containers não estão rodando:"
+    echo "❌ Erro: Serviços não estão rodando:"
     for container in "${MISSING_CONTAINERS[@]}"; do
         echo "   - $container"
     done
@@ -40,11 +50,10 @@ if [ ${#MISSING_CONTAINERS[@]} -gt 0 ]; then
     exit 1
 fi
 
-echo "✅ Todos os containers necessários estão rodando"
+echo "✅ Todos os containers necessários estão rodando (UE: $UE_CONTAINER)"
 echo ""
 
-# Obter IP do UE
-UE_IP=$(docker compose exec $UE_CONTAINER ip addr show 2>/dev/null | grep -oP 'inet \K10\.60\.\d+\.\d+' | head -1 || echo "")
+UE_IP=$(docker exec "$UE_CONTAINER" ip -4 addr show 2>/dev/null | grep -oP 'inet \K10\.60\.\d+\.\d+' | head -1 || echo "")
 if [ -z "$UE_IP" ]; then
     echo "❌ Erro: UE não possui IP atribuído!"
     echo ""
@@ -61,8 +70,12 @@ fi
 echo "📡 UE IP: $UE_IP"
 echo ""
 
-# Verificar se há problema de AMF context que pode afetar o teste (logs do container único)
-AMF_CONTEXT_ERROR=$(docker compose logs ueransim 2>&1 | grep -c "AMF context not found" 2>/dev/null | head -1 || echo "0")
+AMF_CONTEXT_ERROR=0
+for gnb in "${GNB_CONTAINERS[@]}"; do
+    container_running "$gnb" || continue
+    COUNT=$(docker logs "$gnb" 2>&1 | grep -c "AMF context not found" 2>/dev/null | head -1 || echo "0")
+    AMF_CONTEXT_ERROR=$((AMF_CONTEXT_ERROR + COUNT))
+done
 if [ "$AMF_CONTEXT_ERROR" -gt 0 ] 2>/dev/null; then
     echo "⚠️  Aviso: Problema de 'AMF context not found' detectado"
     echo "   Isso pode afetar o registro de novos UEs"
@@ -163,11 +176,7 @@ check_active_upf() {
 
 # Função para testar conectividade
 test_connectivity() {
-    if docker compose exec $UE_CONTAINER ping -c 1 -W 2 $TEST_HOST > /dev/null 2>&1; then
-        return 0
-    else
-        return 1
-    fi
+    ue_ping_ok "$UE_CONTAINER" "$TEST_HOST" 1 2
 }
 
 # Função para parar UPF

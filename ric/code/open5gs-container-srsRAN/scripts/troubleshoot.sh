@@ -7,10 +7,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=ran-detect.sh
+source "$SCRIPT_DIR/ran-detect.sh"
 cd "$PROJECT_DIR"
 
-UE_CONTAINER="${UE_CONTAINER:-ueransim-containerized}"
-GNB_CONTAINER="${GNB_CONTAINER:-ueransim-containerized}"
+UE_CONTAINER="${UE_CONTAINER:-$(find_running_ue || true)}"
+GNB_CONTAINER="${GNB_CONTAINER:-$(find_running_gnb || true)}"
 AMF_IP="10.20.0.11"
 UPF_IP="10.30.0.21"
 UE_SUBNET="10.60.0.0/16"
@@ -67,7 +69,9 @@ case "$cmd" in
         docker compose logs amf --tail 5 2>/dev/null || true
         echo ""
         echo "=== Logs gNB/UE (últimas 10 linhas) ==="
-        docker compose logs ueransim --tail 10 2>/dev/null || true
+        for c in ueransim-gnb ueransim-ue ueransim; do
+            docker compose logs "$c" --tail 5 2>/dev/null || true
+        done
         ;;
     *)
         echo "Uso: $0 [routes|iptables|capture-n2|capture-n3|capture-ue|all]"
