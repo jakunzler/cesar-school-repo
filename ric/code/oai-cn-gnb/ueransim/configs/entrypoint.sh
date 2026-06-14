@@ -9,17 +9,17 @@ set -eu
 # Descobrir rápido:
 # docker run --rm -it ueransim:latest sh -lc 'ls -R / | grep -iE "nr-gnb|nr-ue|ueransim" | head'
 
-GNB_BIN="${GNB_BIN:-./nr-gnb}"
-UE_BIN="${UE_BIN:-./nr-ue}"
+GNB_BIN="${GNB_BIN:-nr-gnb}"
+UE_BIN="${UE_BIN:-nr-ue}"
 
 echo "[entrypoint] starting gNB..."
-$GNB_BIN -c /ueransim/config/gnb.yaml &
+$GNB_BIN -c /etc/ueransim/gnb.yaml &
 GNB_PID=$!
 
 sleep 2
 
 echo "[entrypoint] starting UE..."
-$UE_BIN -c /ueransim/config/ue.yaml &
+$UE_BIN -c /etc/ueransim/ue.yaml &
 UE_PID=$!
 
 # Mantém o container vivo e propaga sinais
