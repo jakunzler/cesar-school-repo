@@ -1,11 +1,19 @@
 #!/bin/bash
-# Validate/preflight Fase 3 SMO/OAM scaffold.
+# Validate/preflight Fase 3 SMO lab.
 
 set -euo pipefail
 
 MODE="${1:-}"
-SMO_OAM_DIR="${SMO_OAM_DIR:-}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+SMO_MODE="${SMO_MODE:-local}"
 SMO_PROJECT_NAME="${SMO_PROJECT_NAME:-oai-smo-lab}"
+SMO_API_PORT="${SMO_API_PORT:-18080}"
+SMO_API_URL="${SMO_API_URL:-http://127.0.0.1:$SMO_API_PORT}"
+SMO_COMPOSE_FILE="$PROJECT_DIR/config/smo/docker-compose.yml"
+
+SMO_OAM_DIR="${SMO_OAM_DIR:-}"
 SMO_WITH_NETWORK="${SMO_WITH_NETWORK:-0}"
 SMO_WITH_TEIV="${SMO_WITH_TEIV:-0}"
 
@@ -14,87 +22,129 @@ die() {
     exit 1
 }
 
-check_file() {
-    local rel="$1"
-    local required="${2:-1}"
-    local file="$SMO_OAM_DIR/$rel"
-    if [ -f "$file" ]; then
-        echo "  OK  $rel"
-    elif [ "$required" = "1" ]; then
-        echo "  FALTA $rel"
-        return 1
-    else
-        echo "  opcional ausente $rel"
-    fi
+get_json() {
+    python3 - "$1" <<'PY'
+import json
+import sys
+import urllib.request
+
+url = sys.argv[1]
+with urllib.request.urlopen(url, timeout=5) as response:
+    print(json.dumps(json.loads(response.read().decode("utf-8")), indent=2, sort_keys=True))
+PY
 }
 
-compose_files=()
-add_compose_file() {
-    local rel="$1"
-    local required="${2:-1}"
-    local file="$SMO_OAM_DIR/$rel"
-    if [ -f "$file" ]; then
-        compose_files+=("-f" "$file")
-    elif [ "$required" = "1" ]; then
-        die "compose obrigatorio ausente: $file"
-    fi
+post_json() {
+    python3 - "$1" "$2" <<'PY'
+import json
+import sys
+import urllib.request
+
+url = sys.argv[1]
+payload = json.loads(sys.argv[2])
+request = urllib.request.Request(
+    url,
+    data=json.dumps(payload).encode("utf-8"),
+    headers={"Content-Type": "application/json"},
+    method="POST",
+)
+with urllib.request.urlopen(request, timeout=5) as response:
+    print(json.dumps(json.loads(response.read().decode("utf-8")), indent=2, sort_keys=True))
+PY
 }
 
-echo "=========================================="
-echo "Teste Fase 3 SMO/OAM"
-echo "=========================================="
+test_local_preflight() {
+    echo "=== Preflight Fase 3 local ==="
+    command -v docker >/dev/null 2>&1 || die "docker nao encontrado"
+    command -v python3 >/dev/null 2>&1 || die "python3 nao encontrado"
+    [ -f "$SMO_COMPOSE_FILE" ] || die "compose local ausente: $SMO_COMPOSE_FILE"
 
-command -v docker >/dev/null 2>&1 || die "docker nao encontrado"
-[ -n "$SMO_OAM_DIR" ] || die "defina SMO_OAM_DIR=/path/para/o-ran-sc-oam"
-[ -d "$SMO_OAM_DIR" ] || die "SMO_OAM_DIR nao existe: $SMO_OAM_DIR"
+    echo "  OK docker"
+    echo "  OK python3"
+    echo "  OK $SMO_COMPOSE_FILE"
 
-echo ""
-echo "=== Preflight arquivos ==="
-missing=0
-check_file "infra/docker-compose.yaml" 1 || missing=1
-check_file "smo/common/docker-compose.yaml" 1 || missing=1
-check_file "smo/oam/docker-compose.yaml" 1 || missing=1
-check_file "network/docker-compose.yaml" 0 || true
-check_file "smo/teiv/docker-compose.yaml" 0 || true
+    python3 -m py_compile "$PROJECT_DIR"/config/smo/smo_lab/*.py
+    echo "  OK sintaxe Python SMO"
 
-if [ "$missing" = "1" ]; then
-    die "checkout SMO/OAM incompleto para este scaffold"
-fi
+    docker compose -p "$SMO_PROJECT_NAME" -f "$SMO_COMPOSE_FILE" config >/dev/null
+    echo "  OK docker compose config"
 
-echo ""
-echo "=== Portas potencialmente sensiveis ==="
-for port in 8080 8081 8181 8443 9092 2181; do
-    if ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]$port$"; then
-        echo "  porta $port em uso"
-    else
-        echo "  porta $port livre"
-    fi
-done
-
-if [ "$MODE" = "--preflight" ]; then
     echo ""
-    echo "Preflight concluido."
-    exit 0
-fi
+    echo "Portas:"
+    if ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]$SMO_API_PORT$"; then
+        echo "  SMO_API_PORT=$SMO_API_PORT em uso"
+    else
+        echo "  SMO_API_PORT=$SMO_API_PORT livre"
+    fi
+}
 
-add_compose_file "infra/docker-compose.yaml" 1
-add_compose_file "smo/common/docker-compose.yaml" 1
-add_compose_file "smo/oam/docker-compose.yaml" 1
+test_local_runtime() {
+    echo "=== Containers SMO local ==="
+    docker compose -p "$SMO_PROJECT_NAME" -f "$SMO_COMPOSE_FILE" ps
 
-if [ "$SMO_WITH_NETWORK" = "1" ]; then
-    add_compose_file "network/docker-compose.yaml" 0
-fi
+    echo ""
+    echo "=== Health API ==="
+    get_json "$SMO_API_URL/health"
 
-if [ "$SMO_WITH_TEIV" = "1" ]; then
-    add_compose_file "smo/teiv/docker-compose.yaml" 0
-fi
+    echo ""
+    echo "=== Ingestao O1/VES/KPM de teste ==="
+    post_json "$SMO_API_URL/o1/v1/nodes" '{"node_id":"odu-test-001","node_type":"O-DU","status":"unlocked","interface":"O1"}' >/dev/null
+    post_json "$SMO_API_URL/ves/v7/events" '{"domain":"fault","eventType":"TEST_EVENT","sourceName":"odu-test-001","severity":"NORMAL"}' >/dev/null
+    post_json "$SMO_API_URL/metrics/kpm" '{"source":"test_smo_lab","metrics":[{"metric":"DRB.UEThpDl","value":12.5,"unit":"kbps"},{"metric":"RRU.PrbTotUl","value":2,"unit":"%"}]}' >/dev/null
 
-echo ""
-echo "=== Containers SMO ==="
-docker compose -p "$SMO_PROJECT_NAME" "${compose_files[@]}" ps
+    echo ""
+    echo "=== Topologia ==="
+    get_json "$SMO_API_URL/topology"
 
-echo ""
-echo "=== Dicas de logs ==="
-echo "docker compose -p $SMO_PROJECT_NAME <compose files> logs --tail=80"
+    echo ""
+    echo "=== Metricas KPM armazenadas ==="
+    get_json "$SMO_API_URL/metrics/kpm?limit=10"
+
+    echo ""
+    echo "=== Workflow IA/ML ==="
+    get_json "$SMO_API_URL/ml/runs?limit=5"
+}
+
+test_external() {
+    [ -n "$SMO_OAM_DIR" ] || die "defina SMO_OAM_DIR=/path/para/o-ran-sc-oam"
+    [ -d "$SMO_OAM_DIR" ] || die "SMO_OAM_DIR nao existe: $SMO_OAM_DIR"
+
+    echo "=== Preflight arquivos SMO/OAM externo ==="
+    for rel in infra/docker-compose.yaml smo/common/docker-compose.yaml smo/oam/docker-compose.yaml; do
+        if [ -f "$SMO_OAM_DIR/$rel" ]; then
+            echo "  OK  $rel"
+        else
+            die "FALTA $rel"
+        fi
+    done
+    [ -f "$SMO_OAM_DIR/network/docker-compose.yaml" ] && echo "  OK  network/docker-compose.yaml" || echo "  opcional ausente network/docker-compose.yaml"
+    [ -f "$SMO_OAM_DIR/smo/teiv/docker-compose.yaml" ] && echo "  OK  smo/teiv/docker-compose.yaml" || echo "  opcional ausente smo/teiv/docker-compose.yaml"
+
+    if [ "$MODE" != "--preflight" ]; then
+        echo ""
+        echo "Use o modo externo para listagem completa:"
+        echo "  docker compose -p $SMO_PROJECT_NAME -f <compose files> ps"
+    fi
+}
+
+echo "=========================================="
+echo "Teste Fase 3 SMO"
+echo "=========================================="
+echo "mode=$SMO_MODE"
+
+case "$SMO_MODE" in
+    local)
+        test_local_preflight
+        [ "$MODE" = "--preflight" ] && exit 0
+        test_local_runtime
+        ;;
+    external)
+        test_external
+        ;;
+    *)
+        die "SMO_MODE invalido: $SMO_MODE (use local ou external)"
+        ;;
+esac
+
 echo ""
 echo "Teste Fase 3 concluido."
